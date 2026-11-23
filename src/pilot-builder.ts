@@ -50,6 +50,7 @@ export interface PilotBuildRecord {
     claudeCode: string;
     sandboxRuntime: string;
     ripgrep: string | null;
+    ripgrepSha256: string | null;
     ripgrepArchitectures: PilotArchitecture[] | null;
   };
   claudeCodeVendorSignature: ClaudeCodeVendorSignature;
@@ -78,6 +79,16 @@ export type ClaudeCodeVendorSignature = {
 
 const anthropicAppleTeamIdentifier = 'Q6L2SF6YDW' as const;
 const anthropicAppleBundleIdentifier = 'com.anthropic.claude-code' as const;
+
+export interface PinnedMacRipgrepPolicy {
+  version: '14.1.1';
+  architecture: PilotArchitecture;
+  archiveName: string;
+  downloadUrl: string;
+  archiveSha256: string;
+  binaryPath: string;
+  binarySha256: string;
+}
 
 export interface PilotBuildResult {
   archivePath: string;
@@ -462,6 +473,51 @@ function portablePath(root: string, path: string): string {
   return relative(root, path).split(sep).join('/');
 }
 
+export async function loadPinnedMacRipgrepPolicy(
+  projectRoot: string,
+  architecture: PilotArchitecture
+): Promise<PinnedMacRipgrepPolicy> {
+  const manifest = JSON.parse(await readFile(
+    resolve(projectRoot, 'third_party', 'ripgrep-14.1.1-release.json'),
+    'utf8'
+  )) as {
+    schemaVersion?: unknown;
+    name?: unknown;
+    version?: unknown;
+    sourceRepository?: unknown;
+    targets?: Record<string, Partial<PinnedMacRipgrepPolicy>>;
+  };
+  const targetName = `macos-${architecture}`;
+  const target = manifest.targets?.[targetName];
+  const expectedArchiveStem = typeof target?.archiveName === 'string'
+    ? target.archiveName.slice(0, -'.tar.gz'.length)
+    : '';
+  if (
+    manifest.schemaVersion !== 1
+    || manifest.name !== 'ripgrep'
+    || manifest.version !== '14.1.1'
+    || manifest.sourceRepository !== 'https://github.com/BurntSushi/ripgrep'
+    || target?.architecture !== architecture
+    || typeof target.archiveName !== 'string'
+    || !target.archiveName.endsWith('.tar.gz')
+    || target.downloadUrl !== `${manifest.sourceRepository}/releases/download/14.1.1/${target.archiveName}`
+    || typeof target.archiveSha256 !== 'string'
+    || !/^[a-f0-9]{64}$/.test(target.archiveSha256)
+    || target.binaryPath !== `${expectedArchiveStem}/rg`
+    || typeof target.binarySha256 !== 'string'
+    || !/^[a-f0-9]{64}$/.test(target.binarySha256)
+  ) throw new Error(`Pinned macOS ripgrep policy is invalid for ${targetName}.`);
+  return {
+    version: '14.1.1',
+    architecture,
+    archiveName: target.archiveName,
+    downloadUrl: target.downloadUrl,
+    archiveSha256: target.archiveSha256,
+    binaryPath: target.binaryPath,
+    binarySha256: target.binarySha256
+  };
+}
+
 export async function selectProductionDependencyPaths(
   projectRoot: string,
   dependencies: string[]
@@ -655,21 +711,44 @@ export async function buildPilotPayload(options: PilotBuilderOptions): Promise<P
     await cp(process.execPath, runtimePath, { force: false, dereference: true });
     if (target.platform === 'macos') await chmod(runtimePath, 0o755);
     let ripgrepVersion: string | null = null;
+    let ripgrepSha256: string | null = null;
     let ripgrepArchitectures: PilotArchitecture[] | null = null;
     if (target.platform === 'macos') {
-      const ripgrepSource = text(await command('/usr/bin/which', ['rg'], projectRoot));
-      if (!isAbsolute(ripgrepSource)) {
-        throw new Error('macOS pilot build host must provide ripgrep for the offline payload.');
+      const policy = await loadPinnedMacRipgrepPolicy(projectRoot, target.architecture);
+      const ripgrepInput = process.env.HONGAI_RIPGREP_SOURCE;
+      if (!ripgrepInput || !isAbsolute(ripgrepInput)) {
+        throw new Error(
+          'macOS pilot build requires an absolute HONGAI_RIPGREP_SOURCE provisioned ' +
+          'from the pinned official ripgrep release.'
+        );
+      }
+      const ripgrepMetadata = await lstat(ripgrepInput);
+      if (!ripgrepMetadata.isFile() || ripgrepMetadata.isSymbolicLink()) {
+        throw new Error('Provisioned macOS ripgrep must be a regular non-link file.');
+      }
+      const ripgrepSource = await realpath(ripgrepInput);
+      if (await sha256File(ripgrepSource) !== policy.binarySha256) {
+        throw new Error('Provisioned macOS ripgrep SHA-256 does not match the pinned release policy.');
       }
       const sourceArchitectures = await macBinaryArchitectures(ripgrepSource, projectRoot);
-      if (!sourceArchitectures.includes(target.architecture)) {
+      if (
+        sourceArchitectures.length !== 1
+        || sourceArchitectures[0] !== target.architecture
+      ) {
         throw new Error(
-          `macOS ripgrep does not contain the required ${target.architecture} architecture slice.`
+          `macOS ripgrep is not the pinned thin ${target.architecture} release binary.`
         );
       }
       const ripgrepPath = resolve(packageRoot, 'runtime', 'bin', 'rg');
       await cp(ripgrepSource, ripgrepPath, { force: false, dereference: true });
-      await chmod(ripgrepPath, 0o755);
+      // Do not execute or even mark the copied file executable until the
+      // destination itself is bound to the pinned digest. This closes the
+      // source-hash-to-copy replacement window.
+      await chmod(ripgrepPath, 0o600);
+      ripgrepSha256 = await sha256File(ripgrepPath);
+      if (ripgrepSha256 !== policy.binarySha256) {
+        throw new Error('Packaged ripgrep SHA-256 changed during the verified copy.');
+      }
       ripgrepArchitectures = await macBinaryArchitectures(ripgrepPath, projectRoot);
       if (
         !ripgrepArchitectures.includes(target.architecture)
@@ -677,7 +756,14 @@ export async function buildPilotPayload(options: PilotBuilderOptions): Promise<P
       ) {
         throw new Error('Packaged ripgrep architecture slices do not match the verified source binary.');
       }
+      await chmod(ripgrepPath, 0o755);
       ripgrepVersion = text(await command(ripgrepPath, ['--version'], projectRoot)).split(/\r?\n/, 1)[0] ?? null;
+      if (ripgrepVersion !== `ripgrep ${policy.version}`) {
+        throw new Error(`Packaged ripgrep does not report pinned version ${policy.version}.`);
+      }
+      if (await sha256File(ripgrepPath) !== policy.binarySha256) {
+        throw new Error('Packaged ripgrep SHA-256 changed while verifying its version.');
+      }
     }
 
     // Anthropic's wrapper deliberately uses bin/claude.exe on every platform.
@@ -790,6 +876,7 @@ export async function buildPilotPayload(options: PilotBuilderOptions): Promise<P
         claudeCode: versions.claudeCode,
         sandboxRuntime: versions.sandboxRuntime,
         ripgrep: ripgrepVersion,
+        ripgrepSha256,
         ripgrepArchitectures
       },
       claudeCodeVendorSignature,

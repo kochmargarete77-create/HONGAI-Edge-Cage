@@ -26,6 +26,8 @@ npm test
 npm run pilot:build -- --project-root <仓库绝对路径> --output-dir <仓库外数据盘目录>
 ```
 
+macOS 构建前必须从 `third_party/ripgrep-14.1.1-release.json` 声明的官方发布地址领取对应架构的 ripgrep，并把经过归档 SHA-256、解包路径和二进制 SHA-256 三重核验后的绝对路径放入 `HONGAI_RIPGREP_SOURCE`。CI 使用 `tools/provision-macos-ripgrep.mjs` 完成该步骤；构建器会再次核对二进制哈希、薄架构切片和版本，拒绝 PATH 中偶然存在或 Homebrew 漂移安装的 `rg`。
+
 生成物包含架构原生 Node 24、预编译控制器、生产依赖、官方 Claude Code、Sandbox Runtime、平台脚本和逐文件 SHA-256 清单。macOS 包还包含架构匹配的 `runtime/bin/rg`。客户安装阶段不得运行 `npm`、`npx`、Homebrew 或在线下载运行时。
 
 GitHub Actions 在 `windows-2025`、`macos-15` 和 `macos-15-intel` 上分别构建并验证三种原生制品。由于本仓库公开，工作流绝不上传明文客户主包。在 `main` 推送或手动触发时，原生 `.tgz` 在 runner 内使用每次随机 AES-256-GCM 内容密钥加密，该内容密钥再由仓库内 4096 位 RSA 公钥以 OAEP-SHA256 封装；Actions 只保留 7 天的 `.enc`、认证信封、非敏感构建记录和无密钥公开启动包。RSA 私钥只在 HONG AI 离线保管环境中存在，不进入仓库、Actions secret、日志或客户机。Actions 构建通过不等于真实客户机验收通过。

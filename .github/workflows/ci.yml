@@ -105,6 +105,15 @@ jobs:
             echo "Runner architecture '$actual' does not match matrix artifact '${{ matrix.artifact }}'." >&2
             exit 1
           fi
+      - name: Provision pinned macOS ripgrep
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          node tools/provision-macos-ripgrep.mjs \
+            --target '${{ matrix.artifact }}' \
+            --output-dir "$RUNNER_TEMP/hongai-ripgrep" \
+            --github-env "$GITHUB_ENV"
       - name: Build Windows offline pilot
         if: runner.os == 'Windows'
         shell: pwsh

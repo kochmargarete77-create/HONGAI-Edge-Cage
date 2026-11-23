@@ -4,12 +4,33 @@ import { join, resolve } from 'node:path';
 import test from 'node:test';
 import {
   isAnthropicCertificateSubject,
+  loadPinnedMacRipgrepPolicy,
   parseAppleClaudeCodeSignature,
   parseLipoArchitectures,
   selectProductionDependencyPaths,
   verifyOfficialClaudeExecutable,
   windowsProductVersionMatchesPackage
 } from '../src/pilot-builder.js';
+
+test('macOS ripgrep supply chain is pinned per architecture', async () => {
+  const projectRoot = resolve(process.cwd());
+  const arm64 = await loadPinnedMacRipgrepPolicy(projectRoot, 'arm64');
+  const x64 = await loadPinnedMacRipgrepPolicy(projectRoot, 'x64');
+  assert.deepEqual(
+    {
+      version: arm64.version,
+      archiveSha256: arm64.archiveSha256,
+      binarySha256: arm64.binarySha256
+    },
+    {
+      version: '14.1.1',
+      archiveSha256: '24ad76777745fbff131c8fbc466742b011f925bfa4fffa2ded6def23b5b937be',
+      binarySha256: '0e0cb83f5195f1f51bb8feef1fff5b0b171e82bd1db6bd35deee701a3e7102f8'
+    }
+  );
+  assert.equal(x64.archiveSha256, 'fc87e78f7cb3fea12d69072e7ef3b21509754717b746368fd40d88963630e2b3');
+  assert.equal(x64.binarySha256, '923dcc25cab57d33f4e7dd0476d4b74a554401a38817e246a8d6101dcd51c50f');
+});
 
 test('pilot dependency selection skips npm root and rejects paths outside canonical node_modules', async () => {
   const testBase = resolve(process.cwd(), '.test-tmp');
