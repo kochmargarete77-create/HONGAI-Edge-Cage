@@ -92,14 +92,14 @@ test('Apple signature evidence requires Anthropic authority and matching team id
   const result = parseAppleClaudeCodeSignature([
     'Executable=/tmp/claude',
     'Identifier=com.anthropic.claude-code',
-    'Authority=Developer ID Application: Anthropic, PBC (2BUA8C4S2C)',
+    'Authority=Developer ID Application: Anthropic, PBC (Q6L2SF6YDW)',
     'Authority=Developer ID Certification Authority',
     'Authority=Apple Root CA',
-    'TeamIdentifier=2BUA8C4S2C'
+    'TeamIdentifier=Q6L2SF6YDW'
   ].join('\n'));
   assert.equal(result.verified, true);
   assert.equal(result.identifier, 'com.anthropic.claude-code');
-  assert.equal(result.teamIdentifier, '2BUA8C4S2C');
+  assert.equal(result.teamIdentifier, 'Q6L2SF6YDW');
   assert.match(result.signingAuthority, /^Developer ID Application: Anthropic/);
 });
 
@@ -110,10 +110,10 @@ test('Apple signature evidence rejects ad-hoc, lookalike and mismatched identiti
   ].join('\n')), /TeamIdentifier/);
   assert.throws(() => parseAppleClaudeCodeSignature([
     'Identifier=com.anthropic.claude-code',
-    'Authority=Developer ID Application: Not Anthropic PBC (2BUA8C4S2C)',
+    'Authority=Developer ID Application: Not Anthropic PBC (Q6L2SF6YDW)',
     'Authority=Developer ID Certification Authority',
     'Authority=Apple Root CA',
-    'TeamIdentifier=2BUA8C4S2C'
+    'TeamIdentifier=Q6L2SF6YDW'
   ].join('\n')), /pinned Anthropic Developer ID chain/);
   assert.throws(() => parseAppleClaudeCodeSignature([
     'Identifier=com.anthropic.claude-code',
@@ -124,15 +124,15 @@ test('Apple signature evidence rejects ad-hoc, lookalike and mismatched identiti
   ].join('\n')), /pinned Anthropic Apple TeamIdentifier/);
   assert.throws(() => parseAppleClaudeCodeSignature([
     'Identifier=com.example.lookalike',
-    'Authority=Developer ID Application: Anthropic PBC (2BUA8C4S2C)',
+    'Authority=Developer ID Application: Anthropic PBC (Q6L2SF6YDW)',
     'Authority=Developer ID Certification Authority',
     'Authority=Apple Root CA',
-    'TeamIdentifier=2BUA8C4S2C'
+    'TeamIdentifier=Q6L2SF6YDW'
   ].join('\n')), /pinned Anthropic bundle identifier/);
   assert.throws(() => parseAppleClaudeCodeSignature([
     'Identifier=com.anthropic.claude-code',
-    'Authority=Developer ID Application: Anthropic PBC (2BUA8C4S2C)',
-    'TeamIdentifier=2BUA8C4S2C'
+    'Authority=Developer ID Application: Anthropic PBC (Q6L2SF6YDW)',
+    'TeamIdentifier=Q6L2SF6YDW'
   ].join('\n')), /pinned Anthropic Developer ID chain/);
 });
 

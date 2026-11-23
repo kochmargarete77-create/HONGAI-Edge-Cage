@@ -72,11 +72,11 @@ export type ClaudeCodeVendorSignature = {
   scheme: 'apple-codesign';
   verified: true;
   identifier: 'com.anthropic.claude-code';
-  teamIdentifier: '2BUA8C4S2C';
+  teamIdentifier: 'Q6L2SF6YDW';
   signingAuthority: string;
 };
 
-const anthropicAppleTeamIdentifier = '2BUA8C4S2C' as const;
+const anthropicAppleTeamIdentifier = 'Q6L2SF6YDW' as const;
 const anthropicAppleBundleIdentifier = 'com.anthropic.claude-code' as const;
 
 export interface PilotBuildResult {
