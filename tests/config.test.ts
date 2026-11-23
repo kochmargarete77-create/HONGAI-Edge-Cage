@@ -98,8 +98,9 @@ test('renders a parent-proxy and strict allowlist policy', () => {
   const writablePaths = policy.filesystem.allowWrite.map((value) =>
     typeof value === 'string' ? value : value.path
   );
-  assert.ok(writablePaths.some((value) => value.endsWith('state\\test\\agent')));
-  assert.ok(!writablePaths.some((value) => value.endsWith('state\\test')));
+  const portableWritablePaths = writablePaths.map((value) => value.replaceAll('\\', '/'));
+  assert.ok(portableWritablePaths.some((value) => value.endsWith('state/test/agent')));
+  assert.ok(!portableWritablePaths.some((value) => value.endsWith('state/test')));
 });
 
 test('renders an idempotent Clash fail-closed chain without a DIRECT fallback', () => {
