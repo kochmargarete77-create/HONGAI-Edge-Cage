@@ -9,7 +9,10 @@ import {
   assertNoRecoverableDeliveryResidue
 } from '../src/delivery-lock.js';
 
-const tempParent = process.platform === 'win32' ? 'E:\\codexdata' : resolve('.test-tmp');
+const projectLocalTemp = resolve('.test-tmp');
+const tempParent = process.platform === 'win32' && !/^[DE]:\\/i.test(projectLocalTemp)
+  ? 'E:\\codexdata'
+  : projectLocalTemp;
 
 async function exitedPid(): Promise<number> {
   return await new Promise<number>((resolvePid, reject) => {

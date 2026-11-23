@@ -680,9 +680,17 @@ export async function buildPilotPayload(options: PilotBuilderOptions): Promise<P
       ripgrepVersion = text(await command(ripgrepPath, ['--version'], projectRoot)).split(/\r?\n/, 1)[0] ?? null;
     }
 
-    const claudeExecutable = target.platform === 'windows'
-      ? resolve(packageRoot, 'node_modules', '@anthropic-ai', 'claude-code', 'bin', 'claude.exe')
-      : resolve(packageRoot, 'node_modules', '@anthropic-ai', 'claude-code', 'bin', 'claude');
+    // Anthropic's wrapper deliberately uses bin/claude.exe on every platform.
+    // On Unix the suffix is harmless, and the postinstall replaces that file
+    // with the matching signed native binary from the optional platform package.
+    const claudeExecutable = resolve(
+      packageRoot,
+      'node_modules',
+      '@anthropic-ai',
+      'claude-code',
+      'bin',
+      'claude.exe'
+    );
     await access(claudeExecutable);
     const claudeCodeVendorSignature = await verifyOfficialClaudeExecutable(
       claudeExecutable,

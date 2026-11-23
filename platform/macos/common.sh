@@ -90,7 +90,7 @@ hongai_require_offline_payload() {
     hongai_fail "the pinned official Claude Code payload is missing"
     return 1
   }
-  [ -x "$HONGAI_PAYLOAD_ROOT/node_modules/@anthropic-ai/claude-code/bin/claude" ] || {
+  [ -x "$HONGAI_PAYLOAD_ROOT/node_modules/@anthropic-ai/claude-code/bin/claude.exe" ] || {
     hongai_fail "the executable macOS Claude Code binary is missing"
     return 1
   }

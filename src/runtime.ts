@@ -75,7 +75,9 @@ function sandboxRuntimeCliPath(): string {
 function officialClaudeCliPath(): string {
   const require = createRequire(import.meta.url);
   const packageJsonPath = require.resolve('@anthropic-ai/claude-code/package.json');
-  return join(dirname(packageJsonPath), 'bin', process.platform === 'win32' ? 'claude.exe' : 'claude');
+  // The official package intentionally keeps the native executable at this
+  // path on Windows and Unix; npm's platform-specific postinstall replaces it.
+  return join(dirname(packageJsonPath), 'bin', 'claude.exe');
 }
 
 export function buildSandboxEnvironment(

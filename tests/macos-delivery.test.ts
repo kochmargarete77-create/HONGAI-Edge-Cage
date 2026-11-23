@@ -88,7 +88,7 @@ async function macFixture(base: string): Promise<{ root: string; config: string;
   ].join('\n'));
   await mkdir(resolve(fixture, 'node_modules', '@anthropic-ai', 'claude-code', 'bin'), { recursive: true });
   await writeFile(resolve(fixture, 'node_modules', '@anthropic-ai', 'claude-code', 'package.json'), '{"name":"@anthropic-ai/claude-code","version":"9.9.1"}\n');
-  const claude = resolve(fixture, 'node_modules', '@anthropic-ai', 'claude-code', 'bin', 'claude');
+  const claude = resolve(fixture, 'node_modules', '@anthropic-ai', 'claude-code', 'bin', 'claude.exe');
   await writeFile(claude, '#!/bin/sh\nexit 0\n');
   await chmod(claude, 0o755);
   await mkdir(resolve(fixture, 'node_modules', '@anthropic-ai', 'sandbox-runtime', 'dist'), { recursive: true });

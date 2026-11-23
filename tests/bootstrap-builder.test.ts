@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFile as execFileCallback } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import test from 'node:test';
 import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
@@ -16,6 +16,12 @@ import {
 
 const root = resolve(process.cwd());
 const execFile = promisify(execFileCallback);
+
+function testDataRoot(): string {
+  const projectParent = dirname(root);
+  if (process.platform !== 'win32' || /^[DE]:\\/i.test(projectParent)) return projectParent;
+  return 'E:\\codexdata';
+}
 
 test('bootstrap output policy rejects C: and repository-style relative paths on Windows', () => {
   assert.equal(validateBootstrapOutputDirectory('D:\\HONGAI\\bootstrap', 'win32'), 'D:\\HONGAI\\bootstrap');
@@ -141,8 +147,10 @@ test('platform entries use the packaged Node and runner without shell interpolat
   assert.doesNotMatch(builder, /@anthropic-ai[\\/]claude-code.*copy|npm\s+(?:ci|install)/i);
 });
 
-test('native bootstrap smoke build verifies with its packaged Node and excludes Claude payloads', async () => {
-  const parent = process.platform === 'win32' ? 'E:\\codexdata' : tmpdir();
+test('native bootstrap smoke build verifies with its packaged Node and excludes Claude payloads', {
+  skip: !['win32', 'darwin'].includes(process.platform)
+}, async () => {
+  const parent = process.platform === 'win32' ? testDataRoot() : tmpdir();
   await mkdir(parent, { recursive: true });
   const output = await mkdtemp(join(parent, '_hongai-bootstrap-test-'));
   try {

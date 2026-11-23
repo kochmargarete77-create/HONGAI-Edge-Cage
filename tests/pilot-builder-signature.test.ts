@@ -143,7 +143,8 @@ test('the installed pinned Claude Code binary has a valid Anthropic vendor signa
   const metadata = JSON.parse(await readFile(
     resolve(projectRoot, 'node_modules', '@anthropic-ai', 'claude-code', 'package.json'),
     'utf8'
-  )) as { version: string };
+  )) as { version: string; bin?: { claude?: string } };
+  assert.equal(metadata.bin?.claude, 'bin/claude.exe');
   const platform = process.platform === 'win32' ? 'windows' : 'macos';
   const executable = resolve(
     projectRoot,
@@ -151,7 +152,7 @@ test('the installed pinned Claude Code binary has a valid Anthropic vendor signa
     '@anthropic-ai',
     'claude-code',
     'bin',
-    process.platform === 'win32' ? 'claude.exe' : 'claude'
+    'claude.exe'
   );
   const result = await verifyOfficialClaudeExecutable(
     executable,
