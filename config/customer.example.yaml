@@ -1,0 +1,82 @@
+schemaVersion: 1
+
+environment:
+  id: demo-customer
+  displayName: Demo Customer - Claude Workspace
+
+platform:
+  strategy: auto
+
+workspace:
+  path: E:/customer-projects/demo
+  stateRoot: E:/hongai-edge-cage-state/demo-customer
+  stateMode: isolated-persistent
+
+network:
+  localProxyUrl: http://127.0.0.1:7897
+  expectedExit:
+    ipv4: 203.0.113.10
+    countryCode: US
+    timeZone: America/Los_Angeles
+  preflightAttempts: 3
+  watchdogIntervalSeconds: 30
+  watchdogFailureLimit: 2
+  failClosed: true
+  strictAllowlist: true
+  allowedDomains:
+    - api.anthropic.com
+    - claude.ai
+    - claude.com
+    - platform.claude.com
+    - sso.claude.com
+    - code.claude.com
+  deniedDomains: []
+
+chain:
+  clashProfileName: 快鱼
+  frontGroupName: HONG AI | 前置跳板
+  preferredFrontNode: CHANGE_ME
+  landing:
+    type: socks5
+    host: 203.0.113.10
+    port: 1080
+    usernameSecretRef: EDGE_CAGE_LANDING_USERNAME
+    passwordSecretRef: EDGE_CAGE_LANDING_PASSWORD
+
+filesystem:
+  denyRead:
+    - C:/Users
+    - D:/
+    - E:/
+    - F:/
+    - ~/.ssh
+    - ~/.aws
+    - ~/.config/gcloud
+    - ~/.kube
+    - ~/.docker
+    - ~/.git-credentials
+    - ~/.netrc
+    - '**/.env'
+    - '**/.env.*'
+  allowRead:
+    - '${WORKSPACE}'
+    - '${STATE_ROOT}'
+    - '${INSTALL_ROOT}'
+  allowWrite:
+    - '${WORKSPACE}'
+    - '${STATE_ROOT}'
+  denyWrite:
+    - '**/.env'
+    - '**/.env.*'
+
+runtime:
+  claudeCommand: bundled-official
+  sandboxEngine: anthropic-srt
+  requireOfficialClaude: true
+  allowUnsandboxedCommands: false
+  failIfSandboxUnavailable: true
+
+assessment:
+  minimumScore: 90
+  reportBrand: HONG AI
+  runBeforeDelivery: true

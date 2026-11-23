@@ -1,0 +1,36 @@
+{
+  "name": "@hongai/edge-cage",
+  "version": "0.1.0-alpha.1",
+  "description": "Cross-platform fail-closed sandbox and delivery controller for AI coding agents.",
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "private": true,
+  "bin": {
+    "hongai-edge-cage": "dist/src/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/src/cli.js",
+    "test": "npm run build && node --test dist/tests/*.test.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-code": "2.1.330",
+    "@anthropic-ai/sandbox-runtime": "0.0.83",
+    "undici": "8.13.1",
+    "yaml": "2.9.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "typescript": "7.0.2"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "overrides": {
+    "@anthropic-ai/sandbox-runtime": {
+      "zod": "4.6.7"
+    }
+  }
+}

@@ -1,0 +1,65 @@
+schemaVersion: 1
+environment:
+  id: customer-macos
+  displayName: Customer macOS Claude Workspace
+platform:
+  strategy: macos
+workspace:
+  path: /Users/Shared/HONGAI-Edge-Cage/Workspaces/customer-macos
+  stateRoot: /Users/Shared/HONGAI-Edge-Cage/State/customer-macos
+  stateMode: isolated-persistent
+network:
+  localProxyUrl: http://127.0.0.1:7897
+  expectedExit:
+    ipv4: 203.0.113.10
+    countryCode: US
+    timeZone: America/Los_Angeles
+  preflightAttempts: 3
+  watchdogIntervalSeconds: 30
+  watchdogFailureLimit: 2
+  failClosed: true
+  strictAllowlist: true
+  allowedDomains:
+    - api.anthropic.com
+    - claude.ai
+    - claude.com
+    - platform.claude.com
+    - sso.claude.com
+    - code.claude.com
+  deniedDomains: []
+chain:
+  clashProfileName: CHANGE_TO_SOURCE_GROUP
+  frontGroupName: HONG AI | Front Hop
+  preferredFrontNode: CHANGE_TO_FRONT_NODE
+  landing:
+    type: socks5
+    host: 203.0.113.10
+    port: 1080
+    usernameSecretRef: EDGE_CAGE_LANDING_USERNAME
+    passwordSecretRef: EDGE_CAGE_LANDING_PASSWORD
+filesystem:
+  denyRead:
+    - /Users
+    - /Volumes
+    - '**/.env'
+    - '**/.env.*'
+  allowRead:
+    - '${WORKSPACE}'
+    - '${STATE_ROOT}'
+    - '${INSTALL_ROOT}'
+  allowWrite:
+    - '${WORKSPACE}'
+    - '${STATE_ROOT}'
+  denyWrite:
+    - '**/.env'
+    - '**/.env.*'
+runtime:
+  claudeCommand: bundled-official
+  sandboxEngine: anthropic-srt
+  requireOfficialClaude: true
+  allowUnsandboxedCommands: false
+  failIfSandboxUnavailable: true
+assessment:
+  minimumScore: 90
+  reportBrand: HONG AI
+  runBeforeDelivery: true
