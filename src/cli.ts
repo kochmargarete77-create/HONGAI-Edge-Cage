@@ -124,7 +124,7 @@ async function main(): Promise<void> {
       console.log(JSON.stringify({
         ok: false,
         product: 'HONG AI Edge Cage',
-        version: '0.2.0-alpha.2',
+        version: '0.2.0-alpha.3',
         platform: process.platform,
         architecture: process.arch,
         node: process.version,
@@ -142,7 +142,7 @@ async function main(): Promise<void> {
       console.log(JSON.stringify({
         ok: doctorOk,
         product: 'HONG AI Edge Cage',
-        version: '0.2.0-alpha.2',
+        version: '0.2.0-alpha.3',
         platform: process.platform,
         architecture: process.arch,
         node: process.version,

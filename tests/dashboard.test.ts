@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { request as httpRequest } from 'node:http';
 import { createServer as createTcpServer } from 'node:net';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -109,12 +110,22 @@ function memoryStorage() {
   };
 }
 
-async function loadTokenResolver(hash: string, storage: ReturnType<typeof memoryStorage>) {
+async function loadTokenResolver(
+  hash: string,
+  storage: ReturnType<typeof memoryStorage>,
+  exchangedToken = 'tab-session-token'
+) {
   const source = await readFile(resolve(projectRoot, 'ui', 'session-token.js'), 'utf8');
   const location = { hash, pathname: '/', search: '' };
   let replacement = '';
+  let exchanges = 0;
   const context = vm.createContext({
     URLSearchParams,
+    fetch: async (_path: string, init: RequestInit) => {
+      exchanges += 1;
+      assert.equal(init.headers && (init.headers as Record<string, string>).Authorization, 'Bearer one-time-dashboard-token');
+      return Response.json({ ok: true, sessionToken: exchangedToken });
+    },
     location,
     sessionStorage: storage,
     history: {
@@ -126,9 +137,15 @@ async function loadTokenResolver(hash: string, storage: ReturnType<typeof memory
   });
   new vm.Script(source).runInContext(context);
   const session = (context as unknown as {
-    HongAiDashboardSession: { resolveToken: () => string; storageKey: string };
+    HongAiDashboardSession: { resolveToken: () => Promise<string>; clearToken: () => void; storageKey: string };
   }).HongAiDashboardSession;
-  return { token: session.resolveToken(), replacement, storageKey: session.storageKey };
+  return {
+    token: await session.resolveToken(),
+    clearToken: session.clearToken,
+    replacement,
+    storageKey: session.storageKey,
+    exchanges
+  };
 }
 
 async function freePort(): Promise<number> {
@@ -143,17 +160,45 @@ async function freePort(): Promise<number> {
   return address.port;
 }
 
-test('dashboard token survives reload in the same tab but not a new tab', async () => {
+async function rawStatusWithHost(port: number, host: string, authorization: string): Promise<number> {
+  return await new Promise<number>((resolveStatus, reject) => {
+    const request = httpRequest({
+      hostname: '127.0.0.1',
+      port,
+      path: '/api/status',
+      method: 'GET',
+      headers: { Host: host, Authorization: authorization }
+    }, (response) => {
+      response.resume();
+      response.once('end', () => resolveStatus(response.statusCode ?? 0));
+    });
+    request.once('error', reject);
+    request.end();
+  });
+}
+
+test('dashboard exchanges a short-lived bootstrap and keeps only the tab session token', async () => {
   const sameTabStorage = memoryStorage();
   const firstLoad = await loadTokenResolver('#token=one-time-dashboard-token', sameTabStorage);
-  assert.equal(firstLoad.token, 'one-time-dashboard-token');
+  assert.equal(firstLoad.token, 'tab-session-token');
   assert.equal(firstLoad.replacement, '/');
+  assert.equal(firstLoad.exchanges, 1);
 
   const reload = await loadTokenResolver('', sameTabStorage);
-  assert.equal(reload.token, 'one-time-dashboard-token');
+  assert.equal(reload.token, 'tab-session-token');
+  assert.equal(reload.exchanges, 0);
 
   const newTab = await loadTokenResolver('', memoryStorage());
   assert.equal(newTab.token, '');
+
+  const staleStorage = memoryStorage();
+  staleStorage.setItem(firstLoad.storageKey, 'stale-session-token');
+  const restartedServer = await loadTokenResolver('#token=one-time-dashboard-token', staleStorage, 'replacement-session-token');
+  assert.equal(restartedServer.token, 'replacement-session-token');
+  assert.equal(restartedServer.exchanges, 1);
+  assert.equal(staleStorage.getItem(firstLoad.storageKey), 'replacement-session-token');
+  restartedServer.clearToken();
+  assert.equal(staleStorage.getItem(firstLoad.storageKey), null);
 });
 
 test('dashboard markup labels configured, expected and observed states without claiming ACTIVE', async () => {
@@ -169,20 +214,44 @@ test('dashboard markup labels configured, expected and observed states without c
 test('dashboard distinguishes configured policy, runtime telemetry and observed exit', async () => {
   const root = await testRoot();
   const config = testConfig(root);
+  const bootstrapToken = 'dashboard-test-bootstrap-token-00000001';
   const dashboard = await createDashboardServer(config, {
-    token: 'dashboard-test-token',
+    token: bootstrapToken,
     runPreflight: async () => successfulPreflight
   });
+  const bootstrapCannotCallApi = await fetch(`http://127.0.0.1:${dashboard.port}/api/status`, {
+    headers: { Authorization: `Bearer ${bootstrapToken}` }
+  });
+  assert.equal(bootstrapCannotCallApi.status, 401);
+  const exchange = await fetch(`http://127.0.0.1:${dashboard.port}/api/session`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${bootstrapToken}` }
+  });
+  assert.equal(exchange.status, 200);
+  const { sessionToken } = await exchange.json() as { sessionToken: string };
   const request = async (path: string, init: RequestInit = {}) => fetch(
     `http://127.0.0.1:${dashboard.port}${path}`,
     {
       ...init,
-      headers: { Authorization: 'Bearer dashboard-test-token', ...init.headers }
+      headers: { Authorization: `Bearer ${sessionToken}`, ...init.headers }
     }
   );
   try {
     const unauthorized = await fetch(`http://127.0.0.1:${dashboard.port}/api/status`);
     assert.equal(unauthorized.status, 401);
+    const replay = await fetch(`http://127.0.0.1:${dashboard.port}/api/session`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${bootstrapToken}` }
+    });
+    assert.equal(replay.status, 200);
+    assert.equal((await replay.json() as { sessionToken: string }).sessionToken, sessionToken);
+
+    const invalidHostStatus = await rawStatusWithHost(
+      dashboard.port,
+      'dashboard.attacker.invalid',
+      `Bearer ${sessionToken}`
+    );
+    assert.equal(invalidHostStatus, 421);
 
     const initialResponse = await request('/api/status');
     assert.equal(initialResponse.status, 200);
@@ -258,7 +327,7 @@ test('missing static assets return a controlled response instead of crashing the
   await mkdir(uiRoot, { recursive: true });
   await writeFile(resolve(uiRoot, 'index.html'), '<!doctype html><title>test</title>', 'utf8');
   const dashboard = await createDashboardServer(testConfig(root), {
-    token: 'asset-test-token',
+    token: 'asset-test-bootstrap-token-0000000001',
     uiRoot
   });
   try {
@@ -269,10 +338,44 @@ test('missing static assets return a controlled response instead of crashing the
       error: 'Dashboard asset is unavailable.'
     });
 
+    const exchange = await fetch(`http://127.0.0.1:${dashboard.port}/api/session`, {
+      method: 'POST',
+      headers: { Authorization: 'Bearer asset-test-bootstrap-token-0000000001' }
+    });
+    const { sessionToken } = await exchange.json() as { sessionToken: string };
     const status = await fetch(`http://127.0.0.1:${dashboard.port}/api/status`, {
-      headers: { Authorization: 'Bearer asset-test-token' }
+      headers: { Authorization: `Bearer ${sessionToken}` }
     });
     assert.equal(status.status, 200);
+  } finally {
+    await dashboard.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('dashboard expires the bootstrap retry window without revoking its session', async () => {
+  const root = await testRoot();
+  const bootstrapToken = 'expiry-test-bootstrap-token-000000001';
+  const dashboard = await createDashboardServer(testConfig(root), {
+    token: bootstrapToken,
+    bootstrapRetryWindowMs: 5
+  });
+  try {
+    const exchange = await fetch(`http://127.0.0.1:${dashboard.port}/api/session`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${bootstrapToken}` }
+    });
+    const { sessionToken } = await exchange.json() as { sessionToken: string };
+    await new Promise((resolveWait) => setTimeout(resolveWait, 20));
+    const expiredBootstrap = await fetch(`http://127.0.0.1:${dashboard.port}/api/session`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${bootstrapToken}` }
+    });
+    assert.equal(expiredBootstrap.status, 401);
+    const existingSession = await fetch(`http://127.0.0.1:${dashboard.port}/api/status`, {
+      headers: { Authorization: `Bearer ${sessionToken}` }
+    });
+    assert.equal(existingSession.status, 200);
   } finally {
     await dashboard.close();
     await rm(root, { recursive: true, force: true });

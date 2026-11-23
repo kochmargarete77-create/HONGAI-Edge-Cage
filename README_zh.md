@@ -19,7 +19,9 @@ HONG AI Edge Cage 是面向官方 Claude Code CLI 的跨平台故障封闭隔离
 - 将少量前置节点和最终出口参数自动展开为完整严格策略的客户参数编译器。
 - 仅回环可访问的 HONG AI 控制台、出口核验与防篡改审计时间线。
 - 公共核心 + GitHub Release 加密制品 + 长期授权 + 单次令牌的受控交付协议。
-- 验签领取、安全解包、固定平台安装脚本和安装结果回执的一链式部署。
+- 跨进程授权存储锁、幂等单调回执状态机，以及不在磁盘明文保存回执令牌的加密可重试 outbox。
+- 验签领取、防碰撞安全解包、staging 优先的平台安装脚本和失败清理。
+- 绑定 commit/tree/blob/hash 构建记录的确定性源码发布构建器；在 Windows 上强制输出到 D:/E: 数据盘。
 - 宿主环境变量白名单与独立 AppData/XDG/npm/Git/GnuPG 状态，降低软件身份泄漏。
 
 ## 核心不变量
@@ -28,6 +30,6 @@ HONG AI Edge Cage 是面向官方 Claude Code CLI 的跨平台故障封闭隔离
 
 ## 当前状态
 
-`0.2.0-alpha.2` 是可测试的开发里程碑，还不是已经签名的客户安装包。部署前请阅读 [部署说明](docs/DEPLOYMENT.md)、[架构](docs/ARCHITECTURE.md)、[安全模型](docs/SECURITY-MODEL.md)、[隔离等级](docs/ISOLATION-TIERS.md)、[受控交付协议](docs/SECURE-DELIVERY.md)、[授权服务运维](docs/LICENSE-SERVICE.md) 和 [验收矩阵](docs/ACCEPTANCE-MATRIX.md)。
+`0.2.0-alpha.3` 是可测试的开发里程碑，还不是已经签名的客户安装包。部署前请阅读 [部署说明](docs/DEPLOYMENT.md)、[架构](docs/ARCHITECTURE.md)、[安全模型](docs/SECURITY-MODEL.md)、[隔离等级](docs/ISOLATION-TIERS.md)、[受控交付协议](docs/SECURE-DELIVERY.md)、[授权服务运维](docs/LICENSE-SERVICE.md)、[发布准备](docs/RELEASE-PROCESS.md) 和 [验收矩阵](docs/ACCEPTANCE-MATRIX.md)。
 
 本项目不是 Anthropic 产品、认证或官方评分。每位终端用户通过未修改的官方 Claude Code 流程使用自己控制的账号完成认证。

@@ -1,4 +1,4 @@
-const token = globalThis.HongAiDashboardSession?.resolveToken() || '';
+let token = '';
 
 const byId = (id) => document.getElementById(id);
 
@@ -17,7 +17,14 @@ const api = async (path, options = {}) => {
     headers: { Authorization: `Bearer ${token}`, ...(options.headers || {}) }
   });
   const data = await response.json();
-  if (!response.ok) throw Object.assign(new Error(data.error || data.failures?.join(' ') || 'Request failed'), { data });
+  if (!response.ok) {
+    if (response.status === 401) {
+      globalThis.HongAiDashboardSession?.clearToken();
+      token = '';
+      data.error = '控制台会话已失效，请重启 Edge Cage 控制台。';
+    }
+    throw Object.assign(new Error(data.error || data.failures?.join(' ') || 'Request failed'), { data });
+  }
   return data;
 };
 
@@ -102,4 +109,14 @@ byId('runPreflight').addEventListener('click', async () => {
   }
 });
 
-load();
+async function initialize() {
+  try {
+    token = await globalThis.HongAiDashboardSession?.resolveToken() || '';
+    await load();
+  } catch (error) {
+    byId('preflightResult').textContent = `控制台认证失败：${error.message}`;
+    byId('preflightResult').className = 'result-box fail';
+  }
+}
+
+initialize();

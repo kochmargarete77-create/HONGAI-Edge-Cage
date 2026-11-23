@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { access } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
@@ -28,6 +28,7 @@ interface DashboardState {
 export interface DashboardServerOptions {
   port?: number;
   token?: string;
+  bootstrapRetryWindowMs?: number;
   uiRoot?: string;
   runPreflight?: typeof runPreflightDefault;
   appendAuditEvent?: typeof appendAuditEventDefault;
@@ -50,10 +51,17 @@ function setSecurityHeaders(response: ServerResponse): void {
   response.setHeader('X-Content-Type-Options', 'nosniff');
   response.setHeader('X-Frame-Options', 'DENY');
   response.setHeader('Referrer-Policy', 'no-referrer');
+  response.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=()');
   response.setHeader(
     'Content-Security-Policy',
     "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'"
   );
+}
+
+function tokensEqual(left: string, right: string): boolean {
+  const leftBytes = Buffer.from(left, 'utf8');
+  const rightBytes = Buffer.from(right, 'utf8');
+  return leftBytes.length === rightBytes.length && timingSafeEqual(leftBytes, rightBytes);
 }
 
 function isLoopbackHost(request: IncomingMessage): boolean {
@@ -129,11 +137,20 @@ export async function createDashboardServer(
   options: DashboardServerOptions = {}
 ): Promise<DashboardServerHandle> {
   const token = options.token ?? randomBytes(32).toString('base64url');
+  if (Buffer.byteLength(token, 'utf8') < 32 || !/^[A-Za-z0-9_-]+$/.test(token)) {
+    throw new Error('Dashboard bootstrap token must be at least 32 bytes and use base64url-safe characters.');
+  }
+  const bootstrapRetryWindowMs = options.bootstrapRetryWindowMs ?? 30_000;
+  if (!Number.isSafeInteger(bootstrapRetryWindowMs) || bootstrapRetryWindowMs <= 0 || bootstrapRetryWindowMs > 5 * 60 * 1000) {
+    throw new Error('Dashboard bootstrap retry window must be a positive integer no longer than five minutes.');
+  }
   const root = options.uiRoot ?? defaultUiRoot();
   const runPreflight = options.runPreflight ?? runPreflightDefault;
   const appendAuditEvent = options.appendAuditEvent ?? appendAuditEventDefault;
   const readAuditEvents = options.readAuditEvents ?? readAuditEventsDefault;
   const state: DashboardState = { lastPreflight: null, lastPreflightAt: null };
+  let bootstrapExchange: { sessionToken: string; expiresAt: number } | undefined;
+  const sessionTokens = new Set<string>();
   await access(join(root, 'index.html'));
 
   const server = createServer(async (request, response) => {
@@ -144,7 +161,29 @@ export async function createDashboardServer(
       }
       const url = new URL(request.url ?? '/', 'http://127.0.0.1');
       if (url.pathname.startsWith('/api/')) {
-        if (request.headers.authorization !== `Bearer ${token}`) {
+        if (request.method === 'POST' && url.pathname === '/api/session') {
+          const authorization = request.headers.authorization;
+          const suppliedBootstrap = authorization?.startsWith('Bearer ') ? authorization.slice(7) : '';
+          const now = Date.now();
+          if (!tokensEqual(suppliedBootstrap, token)) {
+            sendJson(response, 401, { ok: false, error: 'Unauthorized.' });
+            return;
+          }
+          if (!bootstrapExchange) {
+            const sessionToken = randomBytes(32).toString('base64url');
+            sessionTokens.add(sessionToken);
+            bootstrapExchange = { sessionToken, expiresAt: now + bootstrapRetryWindowMs };
+          } else if (now > bootstrapExchange.expiresAt) {
+            sendJson(response, 401, { ok: false, error: 'Bootstrap exchange expired; restart the dashboard controller.' });
+            return;
+          }
+          sendJson(response, 200, { ok: true, sessionToken: bootstrapExchange.sessionToken });
+          return;
+        }
+        const authorization = request.headers.authorization;
+        const suppliedSessionToken = authorization?.startsWith('Bearer ') ? authorization.slice(7) : '';
+        const sessionToken = [...sessionTokens.keys()].find((candidate) => tokensEqual(candidate, suppliedSessionToken));
+        if (!sessionToken) {
           sendJson(response, 401, { ok: false, error: 'Unauthorized.' });
           return;
         }
@@ -154,7 +193,7 @@ export async function createDashboardServer(
           sendJson(response, 200, {
             ok: true,
             product: 'HONG AI Edge Cage',
-            version: '0.2.0-alpha.2',
+            version: '0.2.0-alpha.3',
             environment: config.environment,
             platform: config.platform.strategy,
             workspace: config.workspace.path,
@@ -254,7 +293,10 @@ export async function createDashboardServer(
     port: address.port,
     token,
     url: `http://127.0.0.1:${address.port}/#token=${token}`,
-    close: async () => closeServer(server)
+    close: async () => {
+      sessionTokens.clear();
+      await closeServer(server);
+    }
   };
 }
 

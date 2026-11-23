@@ -21,7 +21,9 @@ HONG AI Edge Cage is a secondary development of [ClaudeCage](https://github.com/
 - Loopback-only HONG AI control room that distinguishes configured policy, observed preflight and actual runtime state.
 - Encrypted GitHub Release delivery with signed artifact identity, revocable long-lived licenses and single-use tokens.
 - Cross-process authorization-store locking and an idempotent, monotonic delivery-receipt state machine.
+- Encrypted, retryable delivery-receipt outbox that never stores the receipt token in plaintext on disk.
 - Verified retrieval, collision-safe source extraction, staging-first platform installers, and failure cleanup.
+- Clean-tree deterministic source release builder with commit/tree/blob/hash build records and D:/E: output enforcement on Windows.
 - Allowlisted host environment with isolated AppData/XDG/npm/Git/GnuPG state.
 
 ## Safety invariant
@@ -39,11 +41,11 @@ node dist/src/cli.js validate --config config/customer.example.yaml
 node dist/src/cli.js init --config config/intake.example.yaml --output config/customer.local.yaml
 ```
 
-Read [deployment](docs/DEPLOYMENT.md), [architecture](docs/ARCHITECTURE.md), [security model](docs/SECURITY-MODEL.md), [isolation tiers](docs/ISOLATION-TIERS.md), [secure delivery](docs/SECURE-DELIVERY.md), [license-service operations](docs/LICENSE-SERVICE.md), and the [acceptance matrix](docs/ACCEPTANCE-MATRIX.md) before testing on a customer device.
+Read [deployment](docs/DEPLOYMENT.md), [architecture](docs/ARCHITECTURE.md), [security model](docs/SECURITY-MODEL.md), [isolation tiers](docs/ISOLATION-TIERS.md), [secure delivery](docs/SECURE-DELIVERY.md), [license-service operations](docs/LICENSE-SERVICE.md), [release preparation](docs/RELEASE-PROCESS.md), and the [acceptance matrix](docs/ACCEPTANCE-MATRIX.md) before testing on a customer device.
 
 ## Status
 
-`0.2.0-alpha.2` is a development milestone, not yet a signed customer installer. Do not represent it as an Anthropic product, certification, or official network score. Each end user authenticates to the unmodified official Claude Code flow with credentials they control.
+`0.2.0-alpha.3` is a development milestone, not yet a signed customer installer. Do not represent it as an Anthropic product, certification, or official network score. Each end user authenticates to the unmodified official Claude Code flow with credentials they control.
 
 ## License and attribution
 

@@ -34,10 +34,12 @@
 - [x] Encrypted GitHub Release protocol, single-use token, revocation and signed artifact descriptor.
 - [x] Cross-process authorization-store serialization and idempotent receipt state machine.
 - [x] Archive path/type/collision/expanded-size validation and staging-first source deployment.
+- [x] Deterministic clean-tree source builder with commit/tree/blob/hash build records.
+- [x] Encrypted persistent receipt outbox with explicit pending state and authenticated retry.
 - [ ] Migrate the JSON authorization store to SQLite WAL or PostgreSQL with schema migrations.
 - [ ] Add signed off-site audit checkpoints, backup/restore drills and key rotation.
 - [ ] Add reproducible Release workflow, SBOM, provenance, protected approval and immutable asset verification.
 - [ ] Replace online `npm ci` with prebuilt offline signed installers.
-- [ ] Add encrypted persistent receipt outbox and resumable activation lease.
+- [ ] Add resumable activation lease and partial-download recovery.
 - [ ] Add guided installer, customer intake UI, recovery bundle and support diagnostics.
 - [ ] Complete Windows/macOS clean-VM acceptance matrix and fault-injection suite.

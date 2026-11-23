@@ -38,6 +38,9 @@ async function main(): Promise<void> {
       }
     });
     console.log(JSON.stringify({ ok: true, ...result, archiveRetained, deployment }, null, 2));
+    if (!result.receiptRecorded) {
+      console.error(`WARNING: deliveryState=PENDING_RECEIPT. Retry with --pending "${result.receiptPendingPath}" after connectivity is restored.`);
+    }
   } finally {
     licenseKey = '';
     oneTimeToken = '';

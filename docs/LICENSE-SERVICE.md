@@ -26,23 +26,23 @@ npm run license:admin -- init --data-root D:\HONGAI-License-Service
 
 ## 生成加密 Release 制品
 
-先从已经通过 CI 的提交生成固定 `package/` 根目录源码包。`git archive` 只收录已提交文件，不会带入本机配置、密钥、缓存或 `.edge-cage` 状态：
+必须先按 [可复现发布准备](RELEASE-PROCESS.md) 从已经通过 CI 的干净提交生成固定 `package/` 根目录源码包和构建记录。不要手工调用 `git archive`，否则会绕过版本一致性、构建前后状态核验和规范化 gzip 门禁：
 
 ```powershell
-git archive --format=tar.gz --prefix=package/ `
-  --output E:\release\edge-cage-0.2.0-alpha.2-source.tgz `
-  COMMIT_SHA
+npm run release:build -- `
+  --project-root E:\codexdata\HONGAI-Edge-Cage `
+  --output-dir E:\HONGAI-Release\0.2.0-alpha.3
 ```
 
-再由管理员工具一次完成加密和内容密钥入库：
+以下示例中的 `COMMIT12` 必须替换为构建器输出文件名中的 12 位提交号。再由管理员工具一次完成加密和内容密钥入库：
 
 ```powershell
 npm run license:admin -- encrypt-artifact `
   --data-root D:\HONGAI-License-Service `
-  --artifact-id edge-cage-0.2.0-alpha.2-source `
-  --input E:\release\edge-cage-0.2.0-alpha.2-source.tgz `
-  --output E:\release\edge-cage-0.2.0-alpha.2-source.tgz.enc `
-  --download-url https://github.com/kochmargarete77-create/HONGAI-Edge-Cage/releases/download/v0.2.0-alpha.2/edge-cage-0.2.0-alpha.2-source.tgz.enc
+  --artifact-id hongai-edge-cage-0.2.0-alpha.3-COMMIT12-source `
+  --input E:\HONGAI-Release\0.2.0-alpha.3\hongai-edge-cage-0.2.0-alpha.3-COMMIT12-source.tgz `
+  --output E:\HONGAI-Release\0.2.0-alpha.3\hongai-edge-cage-0.2.0-alpha.3-COMMIT12-source.tgz.enc `
+  --download-url https://github.com/kochmargarete77-create/HONGAI-Edge-Cage/releases/download/v0.2.0-alpha.3/hongai-edge-cage-0.2.0-alpha.3-COMMIT12-source.tgz.enc
 ```
 
 只上传 `.enc` 文件。确认上传地址与登记地址完全一致后，安全删除临时明文包或转移到离线归档。
@@ -55,7 +55,7 @@ npm run license:admin -- encrypt-artifact `
 npm run license:admin -- issue `
   --data-root D:\HONGAI-License-Service `
   --customer-id customer-001 `
-  --artifact-id edge-cage-0.2.0-alpha.2-source `
+  --artifact-id hongai-edge-cage-0.2.0-alpha.3-COMMIT12-source `
   --ttl-minutes 30
 ```
 
@@ -73,23 +73,51 @@ npm run license:admin -- issue-token `
 ```powershell
 npm run delivery:retrieve -- `
   --service-url https://license.example.com/ `
-  --artifact-id edge-cage-0.2.0-alpha.2-source `
+  --artifact-id hongai-edge-cage-0.2.0-alpha.3-COMMIT12-source `
   --signing-public-key D:\HONGAI\signing-public.pem `
-  --output D:\HONGAI\Delivery\edge-cage-0.2.0-alpha.2-source.tgz
+  --output D:\HONGAI\Delivery\hongai-edge-cage-0.2.0-alpha.3-COMMIT12-source.tgz
 ```
 
 客户端会先验证输出目录、硬链接能力和“不覆盖”条件，再消耗一次性令牌；随后核对签名制品清单、安装 ID、五分钟信封时效、密文 SHA-256 和明文 SHA-256。制品 URL 与两段哈希都被签名，内容密钥信封同时绑定制品清单哈希。成功后回传 `DELIVERED`；实际平台安装器完成后再回传 `INSTALLED`。
+
+如果授权服务在领取或安装完成后暂时不可达，客户端不会把回执令牌明文落盘，而是使用长期授权密钥经 scrypt 派生的 AES-256-GCM 密钥写入加密 outbox，并在结果中的 `receiptPendingPath` 明确返回绝对路径。网络恢复后，用同一长期授权密钥重试；服务端对同状态回执是幂等的：
+
+```powershell
+npm run delivery:receipt -- `
+  --pending D:\HONGAI\Delivery\edge-cage.tgz.receipt-HASH.pending.json
+```
+
+macOS 数据卷示例：
+
+```bash
+npm run delivery:receipt -- \
+  --pending /Volumes/HONGAI/Delivery/edge-cage.tgz.receipt-HASH.pending.json
+```
+
+命令会在交互式终端隐藏读取长期授权密钥，成功提交后才删除 outbox 文件。不要改名、编辑或发送该文件；密钥不匹配或文件被篡改时认证解密会失败并保留原文件。
 
 需要一条链完成领取、解包和部署时，在 Windows 管理员终端或具备相应 macOS 权限的终端运行：
 
 ```powershell
 npm run delivery:deploy -- `
   --service-url https://license.example.com/ `
-  --artifact-id edge-cage-0.2.0-alpha.2-source `
+  --artifact-id hongai-edge-cage-0.2.0-alpha.3-COMMIT12-source `
   --signing-public-key D:\HONGAI\signing-public.pem `
-  --archive-output D:\HONGAI\Delivery\edge-cage-0.2.0-alpha.2-source.tgz `
-  --install-root D:\HONGAI\Edge-Cage-0.2.0-alpha.2 `
+  --archive-output D:\HONGAI\Delivery\hongai-edge-cage-0.2.0-alpha.3-COMMIT12-source.tgz `
+  --install-root D:\HONGAI\Edge-Cage-0.2.0-alpha.3 `
   --config D:\HONGAI\customer.yaml
+```
+
+macOS 上使用独立数据卷或用户有写权限的非系统工作目录，并保持长期授权密钥和单次令牌为终端隐藏输入：
+
+```bash
+npm run delivery:deploy -- \
+  --service-url https://license.example.com/ \
+  --artifact-id hongai-edge-cage-0.2.0-alpha.3-COMMIT12-source \
+  --signing-public-key /Volumes/HONGAI/signing-public.pem \
+  --archive-output /Volumes/HONGAI/Delivery/hongai-edge-cage-0.2.0-alpha.3-COMMIT12-source.tgz \
+  --install-root /Volumes/HONGAI/Edge-Cage-0.2.0-alpha.3 \
+  --config /Volumes/HONGAI/customer.yaml
 ```
 
 自动部署只接受 `package/` 根目录、含 `HONGAI-DELIVERY.json` 的源码包；路径穿越、绝对路径、反斜杠、符号/硬链接、设备文件、大小写或 Unicode 归一化碰撞、Windows 保留名、超条目数和超展开体积都会被拒绝。安装先在同卷 staging 中完成，通过后才原子移动到正式目录；失败默认删除 staging 和解密包。回执支持同状态幂等重试，终态不得回退。
@@ -132,7 +160,7 @@ npm run license:admin -- verify-checkpoint `
 ## 尚未解除的正式发布门槛
 
 - 客户机目前仍会执行在线 `npm ci`；正式安装器必须改为固定运行时和离线依赖。
-- 回执有三次即时重试，但还没有受系统密钥保护的持久 outbox。
+- 回执已有三次即时重试和经长期授权密钥保护的加密持久 outbox；正式安装器仍应进一步接入 Windows DPAPI/macOS Keychain，并在启动时自动冲洗 outbox。
 - Windows 私钥、数据库和解密包仍需显式 NTFS ACL；`mode: 0o600` 不能替代 ACL。
 - 正式启动器必须 Authenticode/Apple 签名并固定授权服务 origin 与签名公钥。
 - 需要在干净 Windows 11、Apple Silicon macOS，以及承诺支持时的 Intel Mac 上做安装、断网、磁盘满、崩溃、回滚和卸载演练。

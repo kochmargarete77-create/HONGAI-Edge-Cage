@@ -1,4 +1,9 @@
-import { randomBytes } from 'node:crypto';
+import {
+  createCipheriv,
+  createDecipheriv,
+  randomBytes,
+  scryptSync
+} from 'node:crypto';
 import { link, lstat, mkdir, open, rm, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute } from 'node:path';
 import { z } from 'zod';
@@ -42,6 +47,34 @@ const activationSchema = z.object({
   envelope: envelopeSchema
 }).strict();
 
+const pendingReceiptSchema = z.object({
+  version: z.literal(1),
+  serviceUrl: z.string().url(),
+  activationId: z.string().min(1).max(160),
+  receiptToken: z.string().min(1).max(256),
+  status: z.enum(['DELIVERED', 'INSTALLED', 'FAILED']),
+  createdAt: z.string().datetime()
+}).strict();
+
+const encryptedPendingReceiptSchema = z.object({
+  version: z.literal(1),
+  kdf: z.object({
+    name: z.literal('scrypt'),
+    N: z.literal(16_384),
+    r: z.literal(8),
+    p: z.literal(1)
+  }).strict(),
+  cipher: z.literal('aes-256-gcm'),
+  salt: z.string().regex(/^[A-Za-z0-9_-]+$/),
+  iv: z.string().regex(/^[A-Za-z0-9_-]+$/),
+  ciphertext: z.string().regex(/^[A-Za-z0-9_-]+$/).max(32_768),
+  authTag: z.string().regex(/^[A-Za-z0-9_-]+$/)
+}).strict();
+
+const pendingReceiptAad = Buffer.from('HONG-AI-EDGE-CAGE-RECEIPT-OUTBOX-V1', 'utf8');
+const maximumPendingReceiptBytes = 64 * 1024;
+const pendingReceiptScrypt = { N: 16_384, r: 8, p: 1, maxmem: 32 * 1024 * 1024 } as const;
+
 export interface RetrieveArtifactOptions {
   serviceUrl: string;
   artifactId: string;
@@ -63,6 +96,8 @@ export interface RetrievedArtifact {
 
 export interface RetrieveArtifactResult extends RetrievedArtifact {
   receiptRecorded: boolean;
+  receiptPendingPath: string | null;
+  deliveryState: 'RECEIPT_RECORDED' | 'PENDING_RECEIPT';
   status: 'DELIVERED' | 'INSTALLED';
 }
 
@@ -167,6 +202,115 @@ async function sendReceiptWithRetry(
   throw lastError;
 }
 
+async function persistPendingReceipt(args: {
+  outputPath: string;
+  serviceUrl: string;
+  activationId: string;
+  receiptToken: string;
+  status: 'DELIVERED' | 'INSTALLED' | 'FAILED';
+  protectionSecret: string;
+}): Promise<string> {
+  if (!args.protectionSecret) throw new Error('A non-empty long-term license key is required to protect a pending receipt.');
+  const activationReference = sha256(Buffer.from(args.activationId, 'utf8')).slice(0, 32);
+  const pendingPath = `${args.outputPath}.receipt-${activationReference}.pending.json`;
+  const temporaryPath = `${pendingPath}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
+  const pending = pendingReceiptSchema.parse({
+    version: 1,
+    serviceUrl: args.serviceUrl,
+    activationId: args.activationId,
+    receiptToken: args.receiptToken,
+    status: args.status,
+    createdAt: new Date().toISOString()
+  });
+  const salt = randomBytes(16);
+  const key = scryptSync(args.protectionSecret, salt, 32, pendingReceiptScrypt);
+  const iv = randomBytes(12);
+  try {
+    const cipher = createCipheriv('aes-256-gcm', key, iv);
+    cipher.setAAD(pendingReceiptAad);
+    const ciphertext = Buffer.concat([
+      cipher.update(Buffer.from(JSON.stringify(pending), 'utf8')),
+      cipher.final()
+    ]);
+    const serialized = `${JSON.stringify({
+      version: 1,
+      kdf: { name: 'scrypt', N: 16_384, r: 8, p: 1 },
+      cipher: 'aes-256-gcm',
+      salt: salt.toString('base64url'),
+      iv: iv.toString('base64url'),
+      ciphertext: ciphertext.toString('base64url'),
+      authTag: cipher.getAuthTag().toString('base64url')
+    }, null, 2)}\n`;
+    const handle = await open(temporaryPath, 'wx', 0o600);
+    let closed = false;
+    try {
+      await handle.writeFile(serialized, 'utf8');
+      await handle.sync();
+      await handle.close();
+      closed = true;
+      await link(temporaryPath, pendingPath);
+    } finally {
+      if (!closed) await handle.close().catch(() => {});
+      await rm(temporaryPath, { force: true });
+    }
+  } finally {
+    key.fill(0);
+  }
+  return pendingPath;
+}
+
+export async function retryPendingReceipt(pendingPath: string, protectionSecret: string): Promise<void> {
+  if (!isAbsolute(pendingPath)) throw new Error('Pending receipt path must be absolute.');
+  if (!protectionSecret) throw new Error('A non-empty long-term license key is required to unlock the pending receipt.');
+  const handle = await open(pendingPath, 'r');
+  let serialized: string;
+  try {
+    const metadata = await handle.stat();
+    if (!metadata.isFile() || metadata.size <= 0 || metadata.size > maximumPendingReceiptBytes) {
+      throw new Error('Pending receipt file is empty, oversized, or not a regular file.');
+    }
+    const bytes = Buffer.alloc(metadata.size);
+    const { bytesRead } = await handle.read(bytes, 0, bytes.length, 0);
+    const overflow = Buffer.alloc(1);
+    const { bytesRead: overflowBytes } = await handle.read(overflow, 0, 1, metadata.size);
+    if (bytesRead !== metadata.size || overflowBytes !== 0) {
+      throw new Error('Pending receipt file changed while it was being read.');
+    }
+    serialized = bytes.toString('utf8');
+  } finally {
+    await handle.close();
+  }
+  const encrypted = encryptedPendingReceiptSchema.parse(
+    JSON.parse(serialized) as unknown
+  );
+  const salt = Buffer.from(encrypted.salt, 'base64url');
+  const iv = Buffer.from(encrypted.iv, 'base64url');
+  const authTag = Buffer.from(encrypted.authTag, 'base64url');
+  if (salt.length !== 16 || iv.length !== 12 || authTag.length !== 16) {
+    throw new Error('Pending receipt encryption metadata is malformed.');
+  }
+  const key = scryptSync(protectionSecret, salt, 32, pendingReceiptScrypt);
+  let pending: z.infer<typeof pendingReceiptSchema>;
+  try {
+    const decipher = createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAAD(pendingReceiptAad);
+    decipher.setAuthTag(authTag);
+    pending = pendingReceiptSchema.parse(JSON.parse(Buffer.concat([
+      decipher.update(Buffer.from(encrypted.ciphertext, 'base64url')),
+      decipher.final()
+    ]).toString('utf8')) as unknown);
+  } finally {
+    key.fill(0);
+  }
+  await sendReceiptWithRetry(
+    pending.serviceUrl,
+    pending.activationId,
+    pending.receiptToken,
+    pending.status
+  );
+  await rm(pendingPath, { force: true });
+}
+
 async function preflightOutputPath(outputPath: string): Promise<void> {
   if (!isAbsolute(outputPath)) throw new Error('Artifact output path must be absolute.');
   await mkdir(dirname(outputPath), { recursive: true });
@@ -195,6 +339,7 @@ export async function retrieveArtifact(options: RetrieveArtifactOptions): Promis
   let activationId: string | undefined;
   let receiptToken: string | undefined;
   let receiptCompleted = false;
+  let completedStatus: 'DELIVERED' | 'INSTALLED' | undefined;
   let outputCreated = false;
   const temporaryPath = `${options.outputPath}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
   try {
@@ -211,6 +356,8 @@ export async function retrieveArtifact(options: RetrieveArtifactOptions): Promis
     ));
     activationId = activation.activationId;
     receiptToken = activation.receiptToken;
+    const currentActivationId = activation.activationId;
+    const currentReceiptToken = activation.receiptToken;
     if (activation.artifact.id !== options.artifactId) {
       throw new Error('License service returned a different artifact ID.');
     }
@@ -272,7 +419,7 @@ export async function retrieveArtifact(options: RetrieveArtifactOptions): Promis
     outputCreated = true;
     await rm(temporaryPath, { force: true });
     const artifact: RetrievedArtifact = {
-      activationId,
+      activationId: currentActivationId,
       artifactId: options.artifactId,
       outputPath: options.outputPath,
       plaintextSha256: plaintextHash,
@@ -280,27 +427,62 @@ export async function retrieveArtifact(options: RetrieveArtifactOptions): Promis
     };
     if (options.finalize) await options.finalize(artifact);
     const status = options.finalize ? 'INSTALLED' : 'DELIVERED';
+    completedStatus = status;
+    let receiptPendingPath: string | null = null;
     const receiptRecorded = await sendReceiptWithRetry(
       options.serviceUrl,
-      activationId,
-      receiptToken,
+      currentActivationId,
+      currentReceiptToken,
       status
-    ).then(() => true, () => false);
+    ).then(() => true, async () => {
+      receiptPendingPath = await persistPendingReceipt({
+        outputPath: options.outputPath,
+        serviceUrl: options.serviceUrl,
+        activationId: currentActivationId,
+        receiptToken: currentReceiptToken,
+        status,
+        protectionSecret: options.licenseKey
+      });
+      return false;
+    });
     receiptCompleted = receiptRecorded;
     return {
       ...artifact,
       receiptRecorded,
+      receiptPendingPath,
+      deliveryState: receiptRecorded ? 'RECEIPT_RECORDED' : 'PENDING_RECEIPT',
       status
     };
   } catch (error) {
+    if (completedStatus) {
+      throw new AggregateError(
+        [error],
+        `${completedStatus} completed, but its receipt could not be recorded or persisted. Do not reinstall; reconcile the activation receipt.`
+      );
+    }
     const cleanupErrors: unknown[] = [];
     await rm(temporaryPath, { force: true }).catch((cleanupError) => cleanupErrors.push(cleanupError));
     if (outputCreated) {
       await rm(options.outputPath, { force: true }).catch((cleanupError) => cleanupErrors.push(cleanupError));
     }
     if (!receiptCompleted && activationId && receiptToken) {
-      await sendReceiptWithRetry(options.serviceUrl, activationId, receiptToken, 'FAILED')
-        .catch((receiptError) => cleanupErrors.push(receiptError));
+      const failedActivationId = activationId;
+      const failedReceiptToken = receiptToken;
+      await sendReceiptWithRetry(options.serviceUrl, failedActivationId, failedReceiptToken, 'FAILED')
+        .catch(async (receiptError) => {
+          try {
+            await persistPendingReceipt({
+              outputPath: options.outputPath,
+              serviceUrl: options.serviceUrl,
+              activationId: failedActivationId,
+              receiptToken: failedReceiptToken,
+              status: 'FAILED',
+              protectionSecret: options.licenseKey
+            });
+          } catch (pendingError) {
+            cleanupErrors.push(new AggregateError([receiptError, pendingError], 'Failure receipt could not be sent or persisted.'));
+          }
+        });
     }
     if (cleanupErrors.length > 0) {
       throw new AggregateError([error, ...cleanupErrors], 'Delivery failed and cleanup or failure receipt also failed.');
