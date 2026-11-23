@@ -19,11 +19,13 @@ test('macOS ripgrep supply chain is pinned per architecture', async () => {
   assert.deepEqual(
     {
       version: arm64.version,
+      versionOutput: arm64.versionOutput,
       archiveSha256: arm64.archiveSha256,
       binarySha256: arm64.binarySha256
     },
     {
       version: '14.1.1',
+      versionOutput: 'ripgrep 14.1.1 (rev 4649aa9700)',
       archiveSha256: '24ad76777745fbff131c8fbc466742b011f925bfa4fffa2ded6def23b5b937be',
       binarySha256: '0e0cb83f5195f1f51bb8feef1fff5b0b171e82bd1db6bd35deee701a3e7102f8'
     }

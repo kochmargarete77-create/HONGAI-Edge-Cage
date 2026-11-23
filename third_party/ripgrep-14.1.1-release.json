@@ -2,6 +2,7 @@
   "schemaVersion": 1,
   "name": "ripgrep",
   "version": "14.1.1",
+  "versionOutput": "ripgrep 14.1.1 (rev 4649aa9700)",
   "sourceRepository": "https://github.com/BurntSushi/ripgrep",
   "targets": {
     "macos-arm64": {

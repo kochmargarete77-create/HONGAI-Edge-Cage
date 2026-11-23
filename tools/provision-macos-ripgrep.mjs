@@ -85,6 +85,7 @@ async function main() {
     manifest.schemaVersion !== 1
     || manifest.name !== 'ripgrep'
     || manifest.version !== '14.1.1'
+    || manifest.versionOutput !== 'ripgrep 14.1.1 (rev 4649aa9700)'
     || manifest.sourceRepository !== 'https://github.com/BurntSushi/ripgrep'
     || !target
     || !expectedArchitecture

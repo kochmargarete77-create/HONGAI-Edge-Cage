@@ -82,6 +82,7 @@ const anthropicAppleBundleIdentifier = 'com.anthropic.claude-code' as const;
 
 export interface PinnedMacRipgrepPolicy {
   version: '14.1.1';
+  versionOutput: 'ripgrep 14.1.1 (rev 4649aa9700)';
   architecture: PilotArchitecture;
   archiveName: string;
   downloadUrl: string;
@@ -484,6 +485,7 @@ export async function loadPinnedMacRipgrepPolicy(
     schemaVersion?: unknown;
     name?: unknown;
     version?: unknown;
+    versionOutput?: unknown;
     sourceRepository?: unknown;
     targets?: Record<string, Partial<PinnedMacRipgrepPolicy>>;
   };
@@ -496,6 +498,7 @@ export async function loadPinnedMacRipgrepPolicy(
     manifest.schemaVersion !== 1
     || manifest.name !== 'ripgrep'
     || manifest.version !== '14.1.1'
+    || manifest.versionOutput !== 'ripgrep 14.1.1 (rev 4649aa9700)'
     || manifest.sourceRepository !== 'https://github.com/BurntSushi/ripgrep'
     || target?.architecture !== architecture
     || typeof target.archiveName !== 'string'
@@ -509,6 +512,7 @@ export async function loadPinnedMacRipgrepPolicy(
   ) throw new Error(`Pinned macOS ripgrep policy is invalid for ${targetName}.`);
   return {
     version: '14.1.1',
+    versionOutput: 'ripgrep 14.1.1 (rev 4649aa9700)',
     architecture,
     archiveName: target.archiveName,
     downloadUrl: target.downloadUrl,
@@ -758,7 +762,7 @@ export async function buildPilotPayload(options: PilotBuilderOptions): Promise<P
       }
       await chmod(ripgrepPath, 0o755);
       ripgrepVersion = text(await command(ripgrepPath, ['--version'], projectRoot)).split(/\r?\n/, 1)[0] ?? null;
-      if (ripgrepVersion !== `ripgrep ${policy.version}`) {
+      if (ripgrepVersion !== policy.versionOutput) {
         throw new Error(`Packaged ripgrep does not report pinned version ${policy.version}.`);
       }
       if (await sha256File(ripgrepPath) !== policy.binarySha256) {
