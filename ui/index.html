@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HONG AI Edge Cage</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="ambient ambient-a"></div>
+  <div class="ambient ambient-b"></div>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark"><span></span><span></span><span></span></div>
+        <div><strong>HONG AI</strong><small>EDGE CAGE</small></div>
+      </div>
+      <nav>
+        <button class="nav-item active" data-target="controlRoom"><i>01</i><span>控制室</span></button>
+        <button class="nav-item" data-target="boundaryControl"><i>02</i><span>边界策略</span></button>
+        <button class="nav-item" data-target="auditTrail"><i>03</i><span>审计轨迹</span></button>
+      </nav>
+      <div class="side-status">
+        <span class="status-dot"></span>
+        <div><small>CONTROL PLANE</small><strong>Local only</strong></div>
+      </div>
+      <div class="side-foot">v0.2 alpha · HONG AI</div>
+    </aside>
+
+    <main>
+      <header id="controlRoom" class="topbar">
+        <div>
+          <p class="eyebrow">ISOLATED AI EXECUTION ENVIRONMENT</p>
+          <h1>Claude 已进入受控空间</h1>
+          <p class="subline">权限可以放开，外层边界不会随会话权限一起解除。</p>
+        </div>
+        <div class="header-actions">
+          <span class="sealed"><b></b> FAIL-CLOSED</span>
+          <button id="runPreflight" class="primary">执行出口核验</button>
+        </div>
+      </header>
+
+      <section class="metrics">
+        <article class="metric">
+          <span>最终出口</span><strong id="exitIp">—</strong><small id="exitRegion">等待配置</small>
+        </article>
+        <article class="metric">
+          <span>进程隔离</span><strong class="good">ACTIVE</strong><small>独立身份与文件边界</small>
+        </article>
+        <article class="metric">
+          <span>出口看门狗</span><strong id="watchdog">—</strong><small>漂移即终止会话</small>
+        </article>
+        <article class="metric">
+          <span>交付闸门</span><strong id="scoreGate">—</strong><small>硬门槛不可被分数抵消</small>
+        </article>
+      </section>
+
+      <section class="workspace-grid">
+        <article class="panel room-panel">
+          <div class="panel-head">
+            <div><p class="eyebrow">THE ROOM</p><h2>四层外部边界</h2></div>
+            <span class="chip">由控制器强制执行</span>
+          </div>
+          <div class="room-stage" aria-label="Claude isolation room diagram">
+            <div class="grid-floor"></div>
+            <div class="room-box">
+              <div class="wall wall-back"></div>
+              <div class="wall wall-left"></div>
+              <div class="wall wall-right"></div>
+              <div class="core-orb"><span>AI</span><i></i></div>
+              <div class="room-label label-network">唯一网络出口</div>
+              <div class="room-label label-files">文件最小权限</div>
+              <div class="room-label label-identity">独立软件身份</div>
+              <div class="room-label label-device">设备信息边界</div>
+            </div>
+          </div>
+          <div class="boundary-legend">
+            <span><i class="cyan"></i>允许且受审计</span>
+            <span><i class="red"></i>宿主路径拒绝</span>
+            <span><i class="gold"></i>硬件隔离需 VM 模式</span>
+          </div>
+        </article>
+
+        <article id="boundaryControl" class="panel boundary-panel">
+          <div class="panel-head"><div><p class="eyebrow">BOUNDARY CONTROL</p><h2>不可降级策略</h2></div></div>
+          <div class="boundary-list">
+            <div class="boundary-row"><span class="icon lock"></span><div><strong>直接联网</strong><small>禁止；只允许本地受控代理</small></div><b class="deny">DENY</b></div>
+            <div class="boundary-row"><span class="icon route"></span><div><strong>本地与内网</strong><small>回环、私网、链路本地地址拒绝</small></div><b class="deny">DENY</b></div>
+            <div class="boundary-row"><span class="icon folder"></span><div><strong>项目文件</strong><small id="workspacePath">仅授权工作区</small></div><b class="allow">ALLOW</b></div>
+            <div class="boundary-row"><span class="icon identity"></span><div><strong>宿主登录态</strong><small>浏览器、Claude、SSH 与云凭据隔离</small></div><b class="deny">DENY</b></div>
+            <div class="boundary-row"><span class="icon device"></span><div><strong>硬件指纹</strong><small>进程模式仍可见基础硬件；密封 VM 才能虚拟化</small></div><b class="warn">LIMITED</b></div>
+          </div>
+          <div class="truth-note"><b>权限原则</b><span>Claude 会话内选择“全部允许”只影响工作区工具权限，不会关闭外层网络、身份和文件系统围栏。</span></div>
+        </article>
+      </section>
+
+      <section class="lower-grid">
+        <article id="auditTrail" class="panel timeline-panel">
+          <div class="panel-head">
+            <div><p class="eyebrow">TAMPER-EVIDENT LEDGER</p><h2>最近审计事件</h2></div>
+            <span id="auditState" class="chip">读取中</span>
+          </div>
+          <div id="auditList" class="timeline"><div class="empty">暂无审计事件</div></div>
+        </article>
+        <article class="panel release-panel">
+          <p class="eyebrow">DELIVERY CONTROL</p>
+          <h2>受控领取与部署</h2>
+          <p>正式包由长期授权密钥与一次性临时令牌共同解锁。GitHub 只承载签名后的加密包，授权服务记录每次密钥签发、下载与安装回执。</p>
+          <div class="release-flow">
+            <span>LICENSE</span><i></i><span>ONE-TIME</span><i></i><span>VERIFY</span><i></i><span>DEPLOY</span>
+          </div>
+          <div id="preflightResult" class="result-box">尚未执行本轮出口核验</div>
+        </article>
+      </section>
+    </main>
+  </div>
+  <script src="/app.js"></script>
+</body>
+</html>

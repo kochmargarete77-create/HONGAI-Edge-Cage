@@ -95,6 +95,7 @@ export const customerConfigSchema = z.object({
     denyWrite: z.array(z.string()).default([])
   }).strict(),
   runtime: z.object({
+    isolationTier: z.literal('process'),
     claudeCommand: z.literal('bundled-official'),
     sandboxEngine: z.literal('anthropic-srt'),
     requireOfficialClaude: z.literal(true),
@@ -116,11 +117,16 @@ export async function loadCustomerConfig(configPath: string): Promise<CustomerCo
   return customerConfigSchema.parse(parsed);
 }
 
-export function expandPolicyPath(value: string, config: CustomerConfig): string {
+export function expandPolicyPath(
+  value: string,
+  config: CustomerConfig,
+  agentStateRoot = resolve(config.workspace.stateRoot, 'agent')
+): string {
   const installRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
   return value
     .replaceAll('${WORKSPACE}', config.workspace.path)
     .replaceAll('${STATE_ROOT}', config.workspace.stateRoot)
+    .replaceAll('${AGENT_STATE}', agentStateRoot)
     .replaceAll('${INSTALL_ROOT}', installRoot);
 }
 

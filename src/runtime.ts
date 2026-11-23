@@ -18,6 +18,12 @@ export interface PreparedEnvironment {
   claudeConfigDir: string;
   homeDir: string;
   tempDir: string;
+  agentStateRoot: string;
+  cacheDir: string;
+  configDir: string;
+  dataDir: string;
+  appDataDir: string;
+  localAppDataDir: string;
   cleanup: () => Promise<void>;
 }
 
@@ -72,15 +78,42 @@ function officialClaudeCliPath(): string {
   return join(dirname(packageJsonPath), 'bin', process.platform === 'win32' ? 'claude.exe' : 'claude');
 }
 
-function sandboxEnvironment(prepared: PreparedEnvironment): NodeJS.ProcessEnv {
+export function buildSandboxEnvironment(
+  config: CustomerConfig,
+  prepared: PreparedEnvironment,
+  hostEnvironment: NodeJS.ProcessEnv = process.env
+): NodeJS.ProcessEnv {
+  const environment: NodeJS.ProcessEnv = {};
+  const inheritedKeys = process.platform === 'win32'
+    ? ['SystemRoot', 'WINDIR', 'ComSpec', 'PATHEXT', 'TERM', 'COLORTERM']
+    : ['SHELL', 'TERM', 'COLORTERM'];
+  for (const key of inheritedKeys) {
+    if (hostEnvironment[key]) environment[key] = hostEnvironment[key];
+  }
+  const pathValue = hostEnvironment.Path ?? hostEnvironment.PATH;
+  if (pathValue) environment.PATH = pathValue;
+
   return {
-    ...process.env,
+    ...environment,
     CLAUDE_CONFIG_DIR: prepared.claudeConfigDir,
     HOME: prepared.homeDir,
     USERPROFILE: prepared.homeDir,
+    APPDATA: prepared.appDataDir,
+    LOCALAPPDATA: prepared.localAppDataDir,
+    XDG_CACHE_HOME: prepared.cacheDir,
+    XDG_CONFIG_HOME: prepared.configDir,
+    XDG_DATA_HOME: prepared.dataDir,
+    NPM_CONFIG_CACHE: resolve(prepared.cacheDir, 'npm'),
+    NPM_CONFIG_USERCONFIG: resolve(prepared.configDir, 'npmrc'),
+    GIT_CONFIG_GLOBAL: resolve(prepared.configDir, 'gitconfig'),
+    GIT_CONFIG_NOSYSTEM: '1',
+    GNUPGHOME: resolve(prepared.configDir, 'gnupg'),
     TMPDIR: prepared.tempDir,
     TEMP: prepared.tempDir,
     TMP: prepared.tempDir,
+    TZ: config.network.expectedExit.timeZone,
+    LANG: 'en_US.UTF-8',
+    LC_ALL: 'en_US.UTF-8',
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
     ENABLE_CLAUDEAI_MCP_SERVERS: 'false',
     CLAUDE_CODE_DISABLE_ARTIFACT: '1',
@@ -109,25 +142,48 @@ export async function prepareEnvironment(config: CustomerConfig): Promise<Prepar
   }
 
   const policyPath = resolve(sessionRoot, 'policy', 'srt-settings.json');
-  const claudeConfigDir = resolve(sessionRoot, 'claude');
-  const homeDir = resolve(sessionRoot, 'home');
-  const tempDir = resolve(sessionRoot, 'tmp');
+  const agentStateRoot = resolve(sessionRoot, 'agent');
+  const claudeConfigDir = resolve(agentStateRoot, 'claude');
+  const homeDir = resolve(agentStateRoot, 'home');
+  const tempDir = resolve(agentStateRoot, 'tmp');
+  const cacheDir = resolve(agentStateRoot, 'cache');
+  const configDir = resolve(agentStateRoot, 'config');
+  const dataDir = resolve(agentStateRoot, 'data');
+  const appDataDir = resolve(agentStateRoot, 'appdata', 'roaming');
+  const localAppDataDir = resolve(agentStateRoot, 'appdata', 'local');
 
   await Promise.all([
     mkdir(dirname(policyPath), { recursive: true }),
     mkdir(claudeConfigDir, { recursive: true }),
     mkdir(homeDir, { recursive: true }),
     mkdir(tempDir, { recursive: true }),
+    mkdir(cacheDir, { recursive: true }),
+    mkdir(configDir, { recursive: true }),
+    mkdir(dataDir, { recursive: true }),
+    mkdir(appDataDir, { recursive: true }),
+    mkdir(localAppDataDir, { recursive: true }),
     mkdir(config.workspace.path, { recursive: true })
   ]);
 
-  const policy = renderSandboxPolicy(config);
+  const policy = renderSandboxPolicy(config, agentStateRoot);
   await writeFile(policyPath, `${JSON.stringify(policy, null, 2)}\n`, {
     encoding: 'utf8',
     mode: 0o600
   });
 
-  return { policyPath, claudeConfigDir, homeDir, tempDir, cleanup };
+  return {
+    policyPath,
+    claudeConfigDir,
+    homeDir,
+    tempDir,
+    agentStateRoot,
+    cacheDir,
+    configDir,
+    dataDir,
+    appDataDir,
+    localAppDataDir,
+    cleanup
+  };
 }
 
 export async function smokeTestSandbox(
@@ -147,7 +203,7 @@ export async function smokeTestSandbox(
     "socket.once('error',()=>{networkBlocked=true;done()});socket.once('timeout',()=>{socket.destroy();networkBlocked=true;done()});"
   ].join('');
   const environment = {
-    ...sandboxEnvironment(prepared),
+    ...buildSandboxEnvironment(config, prepared),
     EDGE_CAGE_FORBIDDEN_PROBE: hostProfile
   };
   const args = [
@@ -194,7 +250,7 @@ export async function launchSandboxedClaude(
   const prepared = await prepareEnvironment(config);
   const srtCli = sandboxRuntimeCliPath();
   const claudeCli = officialClaudeCliPath();
-  const childEnvironment = sandboxEnvironment(prepared);
+  const childEnvironment = buildSandboxEnvironment(config, prepared);
   const srtArguments = [
     srtCli,
     '--settings',

@@ -41,7 +41,7 @@ node dist/src/cli.js clash-script --config D:\HONGAI-Edge-Cage\customer.yaml --o
 Remove-Item Env:EDGE_CAGE_LANDING_USERNAME, Env:EDGE_CAGE_LANDING_PASSWORD
 ```
 
-生成文件包含客户代理凭据，只能导入授权客户的设备。脚本具备幂等性：重复导入不会重复创建节点、代理组或规则。
+生成文件包含客户代理凭据，默认保存在客户状态根目录的 `controller/clash/` 下，只能导入授权客户的设备。该目录不在 Claude 的读写白名单内。脚本具备幂等性：重复导入不会重复创建节点、代理组或规则。
 
 ## 故障封闭逻辑
 

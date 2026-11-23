@@ -5,6 +5,7 @@ import { renderSandboxPolicy } from '../src/policy.js';
 import { renderClashScript } from '../src/clash.js';
 import vm from 'node:vm';
 import { compileCustomerIntake } from '../src/intake.js';
+import { buildSandboxEnvironment, type PreparedEnvironment } from '../src/runtime.js';
 
 const validConfig = {
   schemaVersion: 1,
@@ -44,11 +45,12 @@ const validConfig = {
   },
   filesystem: {
     denyRead: ['~/.ssh'],
-    allowRead: ['${WORKSPACE}', '${INSTALL_ROOT}'],
-    allowWrite: ['${WORKSPACE}'],
+    allowRead: ['${WORKSPACE}', '${AGENT_STATE}', '${INSTALL_ROOT}'],
+    allowWrite: ['${WORKSPACE}', '${AGENT_STATE}'],
     denyWrite: ['**/.env']
   },
   runtime: {
+    isolationTier: 'process',
     claudeCommand: 'bundled-official',
     sandboxEngine: 'anthropic-srt',
     requireOfficialClaude: true,
@@ -93,6 +95,11 @@ test('renders a parent-proxy and strict allowlist policy', () => {
     const path = typeof value === 'string' ? value : value.path;
     return path.includes('projects');
   }));
+  const writablePaths = policy.filesystem.allowWrite.map((value) =>
+    typeof value === 'string' ? value : value.path
+  );
+  assert.ok(writablePaths.some((value) => value.endsWith('state\\test\\agent')));
+  assert.ok(!writablePaths.some((value) => value.endsWith('state\\test')));
 });
 
 test('renders an idempotent Clash fail-closed chain without a DIRECT fallback', () => {
@@ -142,6 +149,7 @@ test('compiles a minimal Windows intake into a strict customer configuration', (
   assert.equal(config.assessment.minimumScore, 90);
   assert.equal(config.chain.preferredFrontNode, 'US-01');
   assert.ok(config.filesystem.allowRead.includes('${INSTALL_ROOT}'));
+  assert.ok(config.filesystem.allowWrite.includes('${AGENT_STATE}'));
 });
 
 test('preserves macOS absolute paths when preparing a macOS customer on Windows', () => {
@@ -161,4 +169,36 @@ test('preserves macOS absolute paths when preparing a macOS customer on Windows'
   });
   assert.equal(config.workspace.path, '/Users/Shared/HONGAI-Edge-Cage/Workspaces/customer-mac');
   assert.equal(config.platform.strategy, 'macos');
+});
+
+test('does not inherit host identity and credential environment variables', () => {
+  const config = customerConfigSchema.parse(validConfig);
+  const prepared: PreparedEnvironment = {
+    policyPath: 'E:/state/test/controller/policy.json',
+    claudeConfigDir: 'E:/state/test/agent/claude',
+    homeDir: 'E:/state/test/agent/home',
+    tempDir: 'E:/state/test/agent/tmp',
+    agentStateRoot: 'E:/state/test/agent',
+    cacheDir: 'E:/state/test/agent/cache',
+    configDir: 'E:/state/test/agent/config',
+    dataDir: 'E:/state/test/agent/data',
+    appDataDir: 'E:/state/test/agent/appdata/roaming',
+    localAppDataDir: 'E:/state/test/agent/appdata/local',
+    cleanup: async () => {}
+  };
+  const environment = buildSandboxEnvironment(config, prepared, {
+    PATH: 'E:/safe-tools',
+    COMPUTERNAME: 'HOST-NAME',
+    USERNAME: 'host-user',
+    PROCESSOR_IDENTIFIER: 'host-cpu',
+    ANTHROPIC_API_KEY: 'secret',
+    SSH_AUTH_SOCK: 'secret-socket'
+  });
+  assert.equal(environment.PATH, 'E:/safe-tools');
+  assert.equal(environment.COMPUTERNAME, undefined);
+  assert.equal(environment.USERNAME, undefined);
+  assert.equal(environment.PROCESSOR_IDENTIFIER, undefined);
+  assert.equal(environment.ANTHROPIC_API_KEY, undefined);
+  assert.equal(environment.SSH_AUTH_SOCK, undefined);
+  assert.equal(environment.TZ, 'America/Los_Angeles');
 });

@@ -15,18 +15,20 @@ The official Claude Code process and every child process are treated as untruste
 
 ## Defense in depth
 
-1. A dedicated state root prevents reuse of host identity data.
-2. Native OS sandboxing limits filesystem access for the full process tree.
-3. SRT's network proxy and OS egress fence deny direct connections.
-4. The parent proxy forces allowed destinations through the customer Clash listener.
-5. Generated Clash rules force all allowed Claude destinations through a one-choice chained exit.
-6. A preflight verifies the configured final IPv4 before start.
-7. A runtime watchdog terminates the session when the final IPv4 disappears or changes.
-8. Optional/nonessential Claude traffic is disabled by supported environment variables.
+1. A dedicated state root prevents reuse of host identity data, and separates agent-writable state from controller-only policy, audit and delivery state.
+2. Host environment variables are allowlisted; AppData, XDG, npm, Git, GnuPG and temporary state are redirected into the agent zone.
+3. Native OS sandboxing limits filesystem access for the full process tree.
+4. SRT's network proxy and OS egress fence deny direct connections.
+5. The parent proxy forces allowed destinations through the customer Clash listener.
+6. Generated Clash rules force all allowed Claude destinations through a one-choice chained exit.
+7. A preflight verifies the configured final IPv4 before start.
+8. A runtime watchdog terminates the session when the final IPv4 disappears or changes.
+9. Optional/nonessential Claude traffic is disabled by supported environment variables.
 
 ## Known limitations
 
 - This alpha is an OS-level process sandbox, not a full virtual machine. No product can truthfully promise mathematical or absolute isolation from a compromised kernel or administrator.
+- Process mode cannot fully replace hardware identifiers exposed by the host kernel. Customers that require hardware fingerprint isolation must use the sealed-VM tier once it passes the platform support matrix.
 - Windows Sandbox Runtime is a research preview and documents limitations around token impersonation and system-service-mediated traffic. HONG AI adds a fixed executable, strict allowlist, WFP installation, a parent proxy, Clash fail-closed rules and runtime exit monitoring, but production rollout still requires negative testing on each supported Windows build.
 - Browser and Claude Desktop isolation are separate deliverables. This alpha wraps the official Claude Code CLI. It does not claim to sandbox an already-installed desktop application.
 - A customer with local administrator/root access can change or remove enforcement. The delivery report only describes the tested configuration and time.

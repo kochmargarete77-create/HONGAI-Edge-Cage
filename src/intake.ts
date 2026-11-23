@@ -98,11 +98,12 @@ export function compileCustomerIntake(raw: unknown): CustomerConfig {
     },
     filesystem: {
       denyRead,
-      allowRead: ['${WORKSPACE}', '${STATE_ROOT}', '${INSTALL_ROOT}'],
-      allowWrite: ['${WORKSPACE}', '${STATE_ROOT}'],
-      denyWrite: ['**/.env', '**/.env.*']
+      allowRead: ['${WORKSPACE}', '${AGENT_STATE}', '${INSTALL_ROOT}'],
+      allowWrite: ['${WORKSPACE}', '${AGENT_STATE}'],
+      denyWrite: ['**/.env', '**/.env.*', '**/clash-global-script.js']
     },
     runtime: {
+      isolationTier: 'process',
       claudeCommand: 'bundled-official',
       sandboxEngine: 'anthropic-srt',
       requireOfficialClaude: true,

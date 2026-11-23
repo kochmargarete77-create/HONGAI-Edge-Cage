@@ -1,17 +1,23 @@
 {
   "name": "@hongai/edge-cage",
-  "version": "0.1.0-alpha.1",
+  "version": "0.2.0-alpha.1",
   "description": "Cross-platform fail-closed sandbox and delivery controller for AI coding agents.",
   "type": "module",
   "license": "AGPL-3.0-only",
   "private": true,
   "bin": {
-    "hongai-edge-cage": "dist/src/cli.js"
+    "hongai-edge-cage": "dist/src/cli.js",
+    "hongai-edge-cage-retrieve": "dist/services/delivery-client/retrieve.js",
+    "hongai-edge-cage-deploy": "dist/services/delivery-client/deploy.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
     "start": "node dist/src/cli.js",
+    "license:admin": "node dist/services/license-service/admin.js",
+    "license:serve": "node dist/services/license-service/server.js",
+    "delivery:retrieve": "node dist/services/delivery-client/retrieve.js",
+    "delivery:deploy": "node dist/services/delivery-client/deploy.js",
     "test": "npm run build && node --test dist/tests/*.test.js"
   },
   "dependencies": {

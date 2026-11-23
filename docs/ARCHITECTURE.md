@@ -26,7 +26,20 @@ The launcher refuses to start when the loopback proxy is unavailable, repeated p
 
 ## Separation of state
 
-Every environment receives its own state root. Host browser profiles, SSH keys, cloud credentials, Clash configuration, and unrelated projects are denied by default. The customer project and the dedicated state root are the only writable locations in the default policy.
+Every environment receives its own state root, split into two trust zones:
+
+- `agent/`: isolated Claude configuration, home and temporary data. This is the only state subtree visible to the sandboxed process.
+- `controller/`: policy, audit chain, delivery receipts and credential-bearing generated files. This subtree is never added to Claude's read or write allowlist.
+
+Host browser profiles, SSH keys, cloud credentials, Clash configuration, controller state, and unrelated projects are denied by default. Only the customer workspace and `agent/` state are writable.
+
+## Process cage and sealed VM
+
+The current alpha implements a process cage. It protects network paths, host software state and sensitive files, but some basic hardware and operating-system properties remain observable through host APIs. A future sealed-VM tier will place the same controller inside a per-customer virtual machine with a fixed virtual CPU, disk, NIC and machine identity. The UI labels these tiers explicitly and never claims that process isolation virtualizes hardware.
+
+## Secure delivery
+
+The public repository contains the AGPL core. Customer delivery artifacts may be stored as signed AES-256-GCM encrypted GitHub Release assets. A HONG AI licensing service validates a long-lived license plus one-time token, records an audit event, and wraps the release content key to an ephemeral X25519 installation key. See `SECURE-DELIVERY.md`.
 
 ## Delivery gates
 

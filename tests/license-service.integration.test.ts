@@ -1,0 +1,144 @@
+import assert from 'node:assert/strict';
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { createServer } from 'node:net';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import test from 'node:test';
+import { generateInstallIdentity } from '../src/license-protocol.js';
+import { verifyDatabaseEvents, type LicenseDatabase } from '../services/license-service/storage.js';
+
+const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const adminPath = resolve(projectRoot, 'dist', 'services', 'license-service', 'admin.js');
+const serverPath = resolve(projectRoot, 'dist', 'services', 'license-service', 'server.js');
+
+function runAdmin(arguments_: string[]): string {
+  const result = spawnSync(process.execPath, [adminPath, ...arguments_], {
+    cwd: projectRoot,
+    encoding: 'utf8',
+    windowsHide: true
+  });
+  assert.equal(result.status, 0, result.stderr);
+  return result.stdout;
+}
+
+async function freePort(): Promise<number> {
+  const probe = createServer();
+  await new Promise<void>((resolveListen, reject) => {
+    probe.once('error', reject);
+    probe.listen(0, '127.0.0.1', resolveListen);
+  });
+  const address = probe.address();
+  assert.ok(address && typeof address !== 'string');
+  await new Promise<void>((resolveClose) => probe.close(() => resolveClose()));
+  return address.port;
+}
+
+async function waitUntilReady(baseUrl: string, child: ChildProcess): Promise<void> {
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    if (child.exitCode !== null) throw new Error('License service exited before readiness.');
+    try {
+      const response = await fetch(`${baseUrl}/health`);
+      if (response.ok) return;
+    } catch {}
+    await new Promise((resolveWait) => setTimeout(resolveWait, 50));
+  }
+  throw new Error('License service did not become ready.');
+}
+
+test('license service consumes one-time tokens and records delivery in its audit chain', async () => {
+  const tempBase = resolve(projectRoot, '.tmp');
+  await mkdir(tempBase, { recursive: true });
+  const dataRoot = await mkdtemp(resolve(tempBase, 'license-service-test-'));
+  const port = await freePort();
+  let child: ChildProcess | undefined;
+  try {
+    runAdmin(['init', '--data-root', dataRoot]);
+    runAdmin([
+      'encrypt-artifact',
+      '--data-root', dataRoot,
+      '--artifact-id', 'integration-artifact',
+      '--input', resolve(projectRoot, 'README.md'),
+      '--output', resolve(dataRoot, 'integration-artifact.enc'),
+      '--download-url', 'https://github.com/example/project/releases/download/test/integration-artifact.enc'
+    ]);
+    const issued = JSON.parse(runAdmin([
+      'issue',
+      '--data-root', dataRoot,
+      '--customer-id', 'integration-customer',
+      '--artifact-id', 'integration-artifact',
+      '--ttl-minutes', '5'
+    ])) as { licenseKey: string; oneTimeToken: string };
+
+    child = spawn(process.execPath, [serverPath], {
+      cwd: projectRoot,
+      env: {
+        ...process.env,
+        HONGAI_LICENSE_DATA_ROOT: dataRoot,
+        HONGAI_LICENSE_BIND: '127.0.0.1',
+        HONGAI_LICENSE_PORT: String(port),
+        HONGAI_LICENSE_AUDIT_PEPPER: 'integration-only-pepper-32-characters'
+      },
+      stdio: 'ignore',
+      windowsHide: true
+    });
+    const baseUrl = `http://127.0.0.1:${port}`;
+    await waitUntilReady(baseUrl, child);
+    const identity = generateInstallIdentity();
+    const activationBody = {
+      licenseKey: issued.licenseKey,
+      oneTimeToken: issued.oneTimeToken,
+      artifactId: 'integration-artifact',
+      installId: identity.installId,
+      clientPublicKeyPem: identity.publicKeyPem
+    };
+    const activationResponse = await fetch(`${baseUrl}/v1/activate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(activationBody)
+    });
+    assert.equal(activationResponse.status, 200);
+    const activation = await activationResponse.json() as {
+      ok: boolean;
+      activationId: string;
+      receiptToken: string;
+    };
+    assert.equal(activation.ok, true);
+
+    const receiptResponse = await fetch(`${baseUrl}/v1/receipt`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        activationId: activation.activationId,
+        receiptToken: activation.receiptToken,
+        status: 'DELIVERED'
+      })
+    });
+    assert.equal(receiptResponse.status, 200);
+
+    const replayResponse = await fetch(`${baseUrl}/v1/activate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(activationBody)
+    });
+    assert.equal(replayResponse.status, 403);
+
+    const database = JSON.parse(
+      await readFile(resolve(dataRoot, 'database.json'), 'utf8')
+    ) as LicenseDatabase;
+    assert.equal(database.activations.length, 1);
+    assert.equal(database.activations[0]?.result, 'DELIVERED');
+    assert.equal(verifyDatabaseEvents(database.events), true);
+  } finally {
+    if (child && child.exitCode === null) {
+      child.kill();
+      await new Promise<void>((resolveExit) => {
+        child!.once('exit', () => resolveExit());
+        setTimeout(resolveExit, 2_000).unref();
+      });
+    }
+    const resolvedRoot = resolve(dataRoot);
+    assert.ok(resolvedRoot.startsWith(`${resolve(tempBase)}${process.platform === 'win32' ? '\\' : '/'}`));
+    await rm(resolvedRoot, { recursive: true, force: true });
+  }
+});

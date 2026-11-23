@@ -18,6 +18,10 @@ HONG AI Edge Cage is a secondary development of [ClaudeCage](https://github.com/
 - Windows WFP provisioning scripts and macOS Seatbelt launch scripts.
 - HONG AI hard-gate acceptance matrix.
 - Minimal customer-intake compiler that expands front-hop/final-exit fields into a full strict policy.
+- Loopback-only HONG AI control room with preflight and a tamper-evident audit timeline.
+- Encrypted GitHub Release delivery with long-lived licenses and single-use tokens.
+- Verified retrieval, safe source extraction, fixed platform installers, and installation receipts.
+- Allowlisted host environment with isolated AppData/XDG/npm/Git/GnuPG state.
 
 ## Safety invariant
 
@@ -34,11 +38,11 @@ node dist/src/cli.js validate --config config/customer.example.yaml
 node dist/src/cli.js init --config config/intake.example.yaml --output config/customer.local.yaml
 ```
 
-Read [deployment](docs/DEPLOYMENT.md), [architecture](docs/ARCHITECTURE.md), [security model](docs/SECURITY-MODEL.md), and [acceptance matrix](docs/ACCEPTANCE-MATRIX.md) before testing on a customer device.
+Read [deployment](docs/DEPLOYMENT.md), [architecture](docs/ARCHITECTURE.md), [security model](docs/SECURITY-MODEL.md), [isolation tiers](docs/ISOLATION-TIERS.md), [secure delivery](docs/SECURE-DELIVERY.md), [license-service operations](docs/LICENSE-SERVICE.md), and the [acceptance matrix](docs/ACCEPTANCE-MATRIX.md) before testing on a customer device.
 
 ## Status
 
-`0.1.0-alpha.1` is a development milestone, not yet a signed customer installer. Do not represent it as an Anthropic product, certification, or official network score. Each end user authenticates to the unmodified official Claude Code flow with credentials they control.
+`0.2.0-alpha.1` is a development milestone, not yet a signed customer installer. Do not represent it as an Anthropic product, certification, or official network score. Each end user authenticates to the unmodified official Claude Code flow with credentials they control.
 
 ## License and attribution
 

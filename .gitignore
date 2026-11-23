@@ -24,6 +24,12 @@ logs/
 pids/
 *.pid
 *.pid.lock
+license-data/
+delivery-data/
+*.private.pem
+master.key
+database.json
+*.edge-cage.enc
 .DS_Store
 Thumbs.db
 ClaudeCage

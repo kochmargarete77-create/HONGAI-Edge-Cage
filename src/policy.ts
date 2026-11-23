@@ -5,7 +5,10 @@ import {
 import type { CustomerConfig } from './config.js';
 import { expandPolicyPath } from './config.js';
 
-export function renderSandboxPolicy(config: CustomerConfig): SandboxRuntimeConfig {
+export function renderSandboxPolicy(
+  config: CustomerConfig,
+  agentStateRoot?: string
+): SandboxRuntimeConfig {
   const policy = {
     network: {
       allowedDomains: [...config.network.allowedDomains],
@@ -32,10 +35,10 @@ export function renderSandboxPolicy(config: CustomerConfig): SandboxRuntimeConfi
       }
     },
     filesystem: {
-      denyRead: config.filesystem.denyRead.map((value) => expandPolicyPath(value, config)),
-      allowRead: config.filesystem.allowRead.map((value) => expandPolicyPath(value, config)),
-      allowWrite: config.filesystem.allowWrite.map((value) => expandPolicyPath(value, config)),
-      denyWrite: config.filesystem.denyWrite.map((value) => expandPolicyPath(value, config))
+      denyRead: config.filesystem.denyRead.map((value) => expandPolicyPath(value, config, agentStateRoot)),
+      allowRead: config.filesystem.allowRead.map((value) => expandPolicyPath(value, config, agentStateRoot)),
+      allowWrite: config.filesystem.allowWrite.map((value) => expandPolicyPath(value, config, agentStateRoot)),
+      denyWrite: config.filesystem.denyWrite.map((value) => expandPolicyPath(value, config, agentStateRoot))
     }
   };
 

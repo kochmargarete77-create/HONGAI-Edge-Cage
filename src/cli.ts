@@ -9,22 +9,23 @@ import { runPreflight } from './preflight.js';
 import { launchSandboxedClaude, prepareEnvironment, smokeTestSandbox } from './runtime.js';
 import { credentialsFromEnvironment, renderClashScript } from './clash.js';
 import { loadAndCompileCustomerIntake, serializeCustomerConfig } from './intake.js';
+import { startDashboard } from './dashboard.js';
 
 interface CliArguments {
-  command: 'init' | 'validate' | 'render' | 'preflight' | 'doctor' | 'launch' | 'clash-script';
+  command: 'init' | 'validate' | 'render' | 'preflight' | 'doctor' | 'dashboard' | 'launch' | 'clash-script';
   configPath: string;
   outputPath?: string;
   passthrough: string[];
 }
 
 function usage(): never {
-  console.error('Usage: hongai-edge-cage <init|validate|render|preflight|doctor|launch|clash-script> --config <file> [--output <file>] [-- <claude args>]');
+  console.error('Usage: hongai-edge-cage <init|validate|render|preflight|doctor|dashboard|launch|clash-script> --config <file> [--output <file>] [-- <claude args>]');
   process.exit(2);
 }
 
 function parseArguments(argv: string[]): CliArguments {
   const [command, ...rest] = argv;
-  if (!command || !['init', 'validate', 'render', 'preflight', 'doctor', 'launch', 'clash-script'].includes(command)) {
+  if (!command || !['init', 'validate', 'render', 'preflight', 'doctor', 'dashboard', 'launch', 'clash-script'].includes(command)) {
     return usage();
   }
 
@@ -88,7 +89,12 @@ async function main(): Promise<void> {
   }
 
   if (args.command === 'clash-script') {
-    const outputPath = args.outputPath ?? resolve('.edge-cage', config.environment.id, 'clash-global-script.js');
+    const outputPath = args.outputPath ?? resolve(
+      config.workspace.stateRoot,
+      'controller',
+      'clash',
+      'clash-global-script.js'
+    );
     const credentials = credentialsFromEnvironment(config);
     const script = renderClashScript(config, credentials);
     await mkdir(dirname(outputPath), { recursive: true });
@@ -107,13 +113,18 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (args.command === 'dashboard') {
+    await startDashboard(config);
+    return;
+  }
+
   if (args.command === 'doctor') {
     const result = await runPreflight(config);
     if (!result.ok) {
       console.log(JSON.stringify({
         ok: false,
         product: 'HONG AI Edge Cage',
-        version: '0.1.0-alpha.1',
+        version: '0.2.0-alpha.1',
         platform: process.platform,
         architecture: process.arch,
         node: process.version,
@@ -131,7 +142,7 @@ async function main(): Promise<void> {
       console.log(JSON.stringify({
         ok: doctorOk,
         product: 'HONG AI Edge Cage',
-        version: '0.1.0-alpha.1',
+        version: '0.2.0-alpha.1',
         platform: process.platform,
         architecture: process.arch,
         node: process.version,
