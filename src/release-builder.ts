@@ -2,7 +2,7 @@
 
 import { createHash, randomBytes } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { link, mkdir, open, realpath, rm } from 'node:fs/promises';
+import { link, lstat, mkdir, open, realpath, rm } from 'node:fs/promises';
 import { gzipSync } from 'node:zlib';
 import {
   dirname,
@@ -138,15 +138,23 @@ function isWithin(parent: string, candidate: string): boolean {
 
 async function nearestExistingAncestor(value: string): Promise<string> {
   let candidate = value;
+  let nearest: string | undefined;
   while (true) {
     try {
-      return await realpath(candidate);
+      const metadata = await lstat(candidate);
+      if (process.platform === 'win32' && metadata.isSymbolicLink()) {
+        throw new Error(`Release output path must not traverse a Windows reparse point: ${candidate}`);
+      }
+      nearest ??= await realpath(candidate);
     } catch (error: unknown) {
       if (!(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')) throw error;
-      const parent = dirname(candidate);
-      if (parent === candidate) throw error;
-      candidate = parent;
     }
+    const parent = dirname(candidate);
+    if (parent === candidate) {
+      if (!nearest) throw new Error(`Release output path has no existing ancestor: ${value}`);
+      return nearest;
+    }
+    candidate = parent;
   }
 }
 

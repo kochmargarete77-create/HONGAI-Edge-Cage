@@ -45,7 +45,7 @@ Read [deployment](docs/DEPLOYMENT.md), [architecture](docs/ARCHITECTURE.md), [se
 
 ## Status
 
-`0.2.0-alpha.3` is a development milestone, not yet a signed customer installer. Do not represent it as an Anthropic product, certification, or official network score. Each end user authenticates to the unmodified official Claude Code flow with credentials they control.
+`0.2.0-alpha.4` adds architecture-native offline pilot payloads, resumable one-time activation, transactional placement, rollback/doctor entry points, and redacted support bundles. It is an unsigned, operator-controlled pilot—not yet a notarized or Authenticode-signed self-service installer. Do not represent it as an Anthropic product, certification, or official network score. Each end user authenticates to the unmodified official Claude Code flow with credentials they control.
 
 ## License and attribution
 

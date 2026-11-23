@@ -81,6 +81,12 @@ export interface LicenseDatabase {
     deliveredAt: string | null;
     completedAt: string | null;
     result: 'KEY_ISSUED' | 'DELIVERED' | 'INSTALLED' | 'FAILED';
+    protocolVersion?: 2;
+    tokenId?: string;
+    activationBindingSha256?: string;
+    artifactManifestSha256?: string;
+    recoveryTokenHash?: SecretHash;
+    recoveryExpiresAt?: string;
   }>;
   events: LicenseAuditEvent[];
 }

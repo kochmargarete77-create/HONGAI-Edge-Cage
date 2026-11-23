@@ -6,12 +6,39 @@ import {
   encryptArtifact,
   generateInstallIdentity,
   generateSigningKeyPair,
+  hashActivationBinding,
   hashArtifactManifest,
   signArtifactManifest,
   unwrapContentKey,
   verifyArtifactManifestSignature,
   wrapContentKeyForInstall
 } from '../src/license-protocol.js';
+
+test('activation binding fixes one artifact and install identity to one X25519 key', () => {
+  const first = generateInstallIdentity();
+  const second = generateInstallIdentity();
+  const binding = hashActivationBinding({
+    artifactId: 'artifact-a',
+    installId: first.installId,
+    clientPublicKeyPem: first.publicKeyPem
+  });
+  assert.match(binding, /^[a-f0-9]{64}$/);
+  assert.equal(hashActivationBinding({
+    artifactId: 'artifact-a',
+    installId: first.installId,
+    clientPublicKeyPem: first.publicKeyPem
+  }), binding);
+  assert.notEqual(hashActivationBinding({
+    artifactId: 'artifact-b',
+    installId: first.installId,
+    clientPublicKeyPem: first.publicKeyPem
+  }), binding);
+  assert.notEqual(hashActivationBinding({
+    artifactId: 'artifact-a',
+    installId: first.installId,
+    clientPublicKeyPem: second.publicKeyPem
+  }), binding);
+});
 
 test('signs immutable artifact identity and rejects descriptor substitution', () => {
   const signing = generateSigningKeyPair();

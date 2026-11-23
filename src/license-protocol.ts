@@ -16,6 +16,32 @@ import {
 const envelopeInfo = Buffer.from('HONG-AI-EDGE-CAGE-KEY-ENVELOPE-V1', 'utf8');
 const artifactMagic = Buffer.from('HAECAGE01', 'ascii');
 
+export interface EncryptedArtifactHeader {
+  iv: Buffer;
+  authTag: Buffer;
+  dataOffset: number;
+}
+
+export function parseEncryptedArtifactHeader(header: Buffer): EncryptedArtifactHeader {
+  const minimum = artifactMagic.length + 12 + 16;
+  if (header.length < minimum) {
+    throw new Error('Encrypted artifact is truncated.');
+  }
+  const magic = header.subarray(0, artifactMagic.length);
+  if (!magic.equals(artifactMagic)) {
+    throw new Error('Encrypted artifact header is invalid.');
+  }
+  return {
+    iv: Buffer.from(header.subarray(artifactMagic.length, artifactMagic.length + 12)),
+    authTag: Buffer.from(header.subarray(artifactMagic.length + 12, minimum)),
+    dataOffset: minimum
+  };
+}
+
+export function encryptedArtifactAad(): Buffer {
+  return Buffer.from(artifactMagic);
+}
+
 export interface InstallIdentity {
   installId: string;
   publicKeyPem: string;
@@ -43,6 +69,38 @@ export interface ArtifactManifest {
   downloadUrl: string;
   ciphertextSha256: string;
   plaintextSha256: string;
+}
+
+/**
+ * Hash the immutable installation identity that an activation is authorized
+ * for.  The public key is canonicalized to DER so harmless PEM formatting
+ * differences cannot create a second binding for the same key.
+ */
+export function hashActivationBinding(args: {
+  artifactId: string;
+  installId: string;
+  clientPublicKeyPem: string;
+}): string {
+  const publicKey = createPublicKey(args.clientPublicKeyPem);
+  if (publicKey.asymmetricKeyType !== 'x25519') {
+    throw new Error('Activation client public key must be X25519.');
+  }
+  const publicKeyDer = Buffer.from(publicKey.export({ format: 'der', type: 'spki' }));
+  const binding = Buffer.from(JSON.stringify({
+    version: 1,
+    artifactId: args.artifactId,
+    installId: args.installId,
+    clientPublicKeyDer: publicKeyDer.toString('base64url')
+  }), 'utf8');
+  try {
+    return createHash('sha256')
+      .update('HONG-AI-EDGE-CAGE-ACTIVATION-BINDING-V1\0', 'utf8')
+      .update(binding)
+      .digest('hex');
+  } finally {
+    publicKeyDer.fill(0);
+    binding.fill(0);
+  }
 }
 
 type UnsignedEnvelope = Omit<ContentKeyEnvelope, 'signature'>;
@@ -223,20 +281,11 @@ export function encryptArtifact(plaintext: Buffer, contentKey: Buffer): Buffer {
 }
 
 export function decryptArtifact(payload: Buffer, contentKey: Buffer): Buffer {
-  if (payload.length < artifactMagic.length + 12 + 16) {
-    throw new Error('Encrypted artifact is truncated.');
-  }
-  const magic = payload.subarray(0, artifactMagic.length);
-  if (!magic.equals(artifactMagic)) {
-    throw new Error('Encrypted artifact header is invalid.');
-  }
-  const ivStart = artifactMagic.length;
-  const tagStart = ivStart + 12;
-  const dataStart = tagStart + 16;
-  const decipher = createDecipheriv('aes-256-gcm', contentKey, payload.subarray(ivStart, tagStart));
+  const header = parseEncryptedArtifactHeader(payload);
+  const decipher = createDecipheriv('aes-256-gcm', contentKey, header.iv);
   decipher.setAAD(artifactMagic);
-  decipher.setAuthTag(payload.subarray(tagStart, dataStart));
-  return Buffer.concat([decipher.update(payload.subarray(dataStart)), decipher.final()]);
+  decipher.setAuthTag(header.authTag);
+  return Buffer.concat([decipher.update(payload.subarray(header.dataOffset)), decipher.final()]);
 }
 
 export function sha256(value: Buffer): string {

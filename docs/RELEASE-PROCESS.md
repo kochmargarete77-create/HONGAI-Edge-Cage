@@ -2,6 +2,8 @@
 
 `release-builder` 只从一个已提交、干净的 Git tree 生成明文源码包。它不会上传文件、不会读取授权数据库，也不会创建 GitHub Release。明文 `.tgz` 必须留在受控数据盘，随后由授权管理员工具本地加密。
 
+客户离线试点包使用 `pilot-builder`，必须分别在 Windows x64、macOS arm64 和 macOS x64 原生构建机上生成。它打包内置 Node、预编译程序、生产依赖、平台脚本和逐文件清单；具体边界见 [PILOT-DELIVERY.md](PILOT-DELIVERY.md)。源码包和离线试点包用途不同，不得互相冒充。
+
 ## 硬门槛
 
 - `package.json` 与 `HONGAI-DELIVERY.json` 的版本必须完全一致；两个文件都从目标 commit 读取，而不是从未绑定的工作区副本读取。
@@ -30,7 +32,7 @@ git status --short
 ```powershell
 npm run release:build -- `
   --project-root E:\codexdata\HONGAI-Edge-Cage `
-  --output-dir E:\HONGAI-Release\0.2.0-alpha.3
+  --output-dir E:\HONGAI-Release\0.2.0-alpha.4
 ```
 
 macOS 使用已挂载的数据卷或其他绝对、非工作树路径：
@@ -38,7 +40,7 @@ macOS 使用已挂载的数据卷或其他绝对、非工作树路径：
 ```bash
 npm run release:build -- \
   --project-root /Volumes/Work/HONGAI-Edge-Cage \
-  --output-dir /Volumes/HONGAI-Release/0.2.0-alpha.3
+  --output-dir /Volumes/HONGAI-Release/0.2.0-alpha.4
 ```
 
 工具输出：
@@ -69,6 +71,8 @@ shasum -a 256 /Volumes/HONGAI-Release/build-b/*.tgz
 ## 本地加密与上传边界
 
 使用 `license-admin encrypt-artifact` 在授权环境中加密 `.tgz`，按 `docs/LICENSE-SERVICE.md` 登记签名制品清单。只有 `.enc` 可以上传 GitHub Release。
+
+公开 CI 的三平台原生试点包使用独立的**运输加密**：runner 用 `keys/ci-artifact-transport-public.pem` 封装随机内容密钥，Actions artifact 仅包含 `.enc`、`.envelope.json` 和 `.build-record.json`。离线取回时必须用 `tools/ci-artifact-transport.mjs decrypt` 同时提供对应构建记录；该工具认证二者绑定并拒绝覆盖既有文件。运输加密不是客户授权加密，也不能替代正式制品签名、授权登记或客户机验收。
 
 严禁上传：
 

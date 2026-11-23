@@ -2,13 +2,14 @@
 
 import { readFile } from 'node:fs/promises';
 import { retrieveArtifact } from '../../src/delivery-client.js';
-import { absoluteArgument, hiddenPrompt, required } from './terminal.js';
+import { absoluteArgument, argument, hiddenPrompt, required } from './terminal.js';
 
 async function main(): Promise<void> {
   const serviceUrl = required('service-url');
   const artifactId = required('artifact-id');
   const signingPublicKeyPem = await readFile(absoluteArgument('signing-public-key'), 'utf8');
   const outputPath = absoluteArgument('output');
+  const proxyUrl = argument('proxy-url');
   let licenseKey = await hiddenPrompt('长期授权密钥（输入不可见）：');
   let oneTimeToken = await hiddenPrompt('一次性临时密钥（输入不可见）：');
   try {
@@ -18,7 +19,8 @@ async function main(): Promise<void> {
       licenseKey,
       oneTimeToken,
       signingPublicKeyPem,
-      outputPath
+      outputPath,
+      ...(proxyUrl ? { proxyUrl } : {})
     });
     console.log(JSON.stringify({ ok: true, ...result }, null, 2));
     if (!result.receiptRecorded) {

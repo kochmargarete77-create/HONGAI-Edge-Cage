@@ -8,9 +8,14 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-$ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$CliPath = Join-Path $ProjectRoot 'dist\src\cli.js'
-$ResolvedConfig = (Resolve-Path $ConfigPath).Path
+. (Join-Path $PSScriptRoot 'HONGAI-Windows.Common.ps1')
 
-& node $CliPath launch --config $ResolvedConfig -- @ClaudeArguments
+Assert-HongAiWindows
+$ProjectRoot = Assert-HongAiDataDrivePath -Path (Get-HongAiProjectRoot) -Label 'Offline installation root'
+$ResolvedConfig = Assert-HongAiDataDrivePath -Path (Resolve-Path -LiteralPath $ConfigPath).Path -Label 'Customer configuration'
+$Payload = Get-HongAiOfflinePayload -ProjectRoot $ProjectRoot -VerifyPortableManifest -AllowInstalledState
+$State = Read-HongAiInstalledState -ProjectRoot $ProjectRoot
+Assert-HongAiInstalledConfig -State $State -ConfigPath $ResolvedConfig
+
+& $Payload.NodePath $Payload.CliPath launch --config $ResolvedConfig -- @ClaudeArguments
 exit $LASTEXITCODE

@@ -117,6 +117,11 @@ export function buildSandboxEnvironment(
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
     ENABLE_CLAUDEAI_MCP_SERVERS: 'false',
     CLAUDE_CODE_DISABLE_ARTIFACT: '1',
+    // The customer payload is a version-pinned, integrity-checked offline
+    // distribution. Prevent the upstream binary from replacing itself outside
+    // the HONG AI release and rollback transaction.
+    DISABLE_UPDATES: '1',
+    DISABLE_INSTALLATION_CHECKS: '1',
     DISABLE_TELEMETRY: '1',
     DISABLE_ERROR_REPORTING: '1',
     DO_NOT_TRACK: '1',

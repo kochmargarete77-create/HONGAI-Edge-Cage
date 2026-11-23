@@ -30,6 +30,8 @@ Windows 与 macOS 路径、官方必需域名、严格白名单、监控频率�
 6. 首次启动完成官方登录。若浏览器回调无法进入沙箱，使用官方提供的手动授权码回填流程。
 7. 运行 HONG AI 验收；正式交付阈值默认 90 分，所有硬门槛必须通过。
 
+客户试点优先使用 `pilot-builder` 生成的架构原生离线包。客户机不得现场执行 `npm ci`、构建源码或下载 Node/Homebrew；Windows、Apple Silicon 与 Intel Mac 必须使用各自制品。完整安装、doctor、启动、回滚和卸载命令见 [受控客户试点交付手册](PILOT-DELIVERY.md)。
+
 ## 生成 Clash 脚本
 
 Windows PowerShell 示例：
@@ -60,3 +62,5 @@ HONG AI Edge Cage 不删除客户原有 Claude、浏览器或 Clash 数据。它
 - 撤销 Clash 全局脚本或切回导入前备份。
 - Windows 运行 `Uninstall-HONGAI-Edge-Cage.ps1`，只移除专用账号和 WFP 规则，默认保留客户状态。
 - macOS 没有常驻系统围栏；停止进程即撤销 Seatbelt 策略，状态目录默认保留。
+
+Windows 安装器只撤销本次新建且由安装状态证明归本产品所有的 SRT/WFP；已有共享 SRT 默认不升级也不删除。macOS 使用 `current`/`current.previous` 原子链接切换，回滚前会重新核对目标版本的产品、版本和架构标记。

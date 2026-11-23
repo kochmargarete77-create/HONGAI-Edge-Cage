@@ -2,7 +2,7 @@
 
 ## 当前：Process Cage
 
-`0.2.0-alpha.3` 实现的是进程级 Cage：
+`0.2.0-alpha.4` 实现的是进程级 Cage：
 
 - Claude 及子进程只能通过 Sandbox Runtime 的受控父代理访问白名单域名；
 - 最终出口不一致或不可用时拒绝启动，运行中漂移则终止会话；

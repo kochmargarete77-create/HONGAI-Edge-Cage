@@ -26,10 +26,10 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Set up Node.js 24
+      - name: Set up pinned Node.js 24.15.0
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 24
+          node-version: 24.15.0
           cache: npm
       - name: Install locked dependencies
         run: npm ci --fund=false --audit=false
@@ -42,16 +42,236 @@ jobs:
         run: npm audit --omit=dev --audit-level=moderate
       - name: Validate macOS shell scripts
         if: runner.os != 'Windows'
-        run: sh -n platform/macos/install.sh platform/macos/start.sh platform/macos/uninstall.sh
+        run: find platform/macos platform/bootstrap/macos -type f \( -name '*.sh' -o -name '*.command' \) -exec sh -n {} \;
       - name: Validate Windows PowerShell scripts
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $failed = $false
-          Get-ChildItem platform/windows -Filter *.ps1 | ForEach-Object {
+          Get-ChildItem platform/windows, platform/bootstrap/windows -Filter *.ps1 | ForEach-Object {
             $tokens = $null
             $errors = $null
             [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors) | Out-Null
             if ($errors) { $errors; $failed = $true }
           }
           if ($failed) { exit 1 }
+
+  pilot-package:
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2025
+            artifact: windows-x64
+          - os: macos-15
+            artifact: macos-arm64
+          - os: macos-15-intel
+            artifact: macos-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up pinned Node.js 24.15.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.15.0
+          cache: npm
+      - name: Install pinned dependencies and compile
+        run: npm ci --fund=false --audit=false && npm run build
+      - name: Assert Windows runner architecture matches artifact label
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $actual = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
+          if ('${{ matrix.artifact }}' -ne 'windows-x64' -or $actual -ne 'x64') {
+            throw "Runner architecture '$actual' does not match matrix artifact '${{ matrix.artifact }}'."
+          }
+      - name: Assert macOS runner architecture matches artifact label
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual=$(/usr/bin/uname -m)
+          case '${{ matrix.artifact }}' in
+            macos-arm64) expected=arm64 ;;
+            macos-x64) expected=x86_64 ;;
+            *) echo "Unexpected macOS artifact label: ${{ matrix.artifact }}" >&2; exit 1 ;;
+          esac
+          if [ "$actual" != "$expected" ]; then
+            echo "Runner architecture '$actual' does not match matrix artifact '${{ matrix.artifact }}'." >&2
+            exit 1
+          fi
+      - name: Build Windows offline pilot
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $output = Join-Path $env:RUNNER_TEMP 'hongai-pilot'
+          New-Item -ItemType Directory -Path $output -Force | Out-Null
+          node dist/src/pilot-builder.js --project-root $env:GITHUB_WORKSPACE --output-dir $output
+          Get-ChildItem -LiteralPath $output | Format-Table Name, Length
+          $bootstrap = Join-Path $env:RUNNER_TEMP 'hongai-bootstrap'
+          New-Item -ItemType Directory -Path $bootstrap -Force | Out-Null
+          node dist/src/bootstrap-builder.js --project-root $env:GITHUB_WORKSPACE --output-dir $bootstrap
+          Get-ChildItem -LiteralPath $bootstrap | Format-Table Name, Length
+      - name: Build macOS offline pilot
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          output="$RUNNER_TEMP/hongai-pilot"
+          mkdir -p "$output"
+          node dist/src/pilot-builder.js --project-root "$GITHUB_WORKSPACE" --output-dir "$output"
+          ls -lh "$output"
+          bootstrap="$RUNNER_TEMP/hongai-bootstrap"
+          mkdir -p "$bootstrap"
+          node dist/src/bootstrap-builder.js --project-root "$GITHUB_WORKSPACE" --output-dir "$bootstrap"
+          ls -lh "$bootstrap"
+      - name: Verify the real macOS archive and offline installer gate
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive=$(find "$RUNNER_TEMP/hongai-pilot" -maxdepth 1 -type f -name '*.tgz' -print -quit)
+          test -n "$archive"
+          smoke="$RUNNER_TEMP/hongai-macos-archive-smoke"
+          mkdir -p "$smoke"
+          /usr/bin/tar -xzf "$archive" -C "$smoke"
+          package="$smoke/package"
+          (
+            . "$package/platform/macos/common.sh"
+            arch=$(hongai_architecture)
+            node=$(hongai_require_offline_payload "$package" "$arch")
+            hongai_verify_versions "$package" "$node" >/dev/null
+          )
+          set +e
+          output=$(/bin/sh "$package/platform/macos/install.sh" "$package/config/customer.macos.example.yaml" 2>&1)
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "$output"
+            echo 'macOS smoke unexpectedly passed the placeholder network doctor.' >&2
+            exit 1
+          fi
+          test ! -e "$package/.hongai-install.json"
+          printf '%s\n' "$output" | tail -n 20
+      - name: Exercise clean-machine Windows SRT/WFP failure rollback
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $output = Join-Path $env:RUNNER_TEMP 'hongai-pilot'
+          $archive = Get-ChildItem -LiteralPath $output -Filter *.tgz | Select-Object -First 1
+          if (-not $archive) { throw 'Windows pilot archive is missing.' }
+          $smoke = Join-Path $env:RUNNER_TEMP 'hongai-windows-rollback-smoke'
+          New-Item -ItemType Directory -Path $smoke -Force | Out-Null
+          tar -xzf $archive.FullName -C $smoke
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to extract the Windows pilot archive for rollback smoke.' }
+          $package = Join-Path $smoke 'package'
+          $installer = Join-Path $package 'platform\windows\Install-HONGAI-Edge-Cage.ps1'
+          $config = Join-Path $package 'config\customer.windows.example.yaml'
+          $failedAsExpected = $false
+          try {
+            & $installer -ConfigPath $config
+          } catch {
+            $message = [string]$_.Exception.Message
+            if ($message -notmatch 'Offline installation completed provisioning, but the fail-closed doctor did not pass') {
+              throw "Rollback smoke failed before reaching the post-provision doctor gate: $message"
+            }
+            $failedAsExpected = $true
+            Write-Host "Expected fail-closed doctor failure: $message"
+          }
+          if (-not $failedAsExpected) {
+            & (Join-Path $package 'platform\windows\Uninstall-HONGAI-Edge-Cage.ps1')
+            throw 'Rollback smoke unexpectedly reached a successful installation without its declared local proxy.'
+          }
+          $state = Join-Path $package '.edge-cage\windows-install-state.json'
+          if (Test-Path -LiteralPath $state) { throw 'INSTALLING ownership state remained after verified automatic rollback.' }
+          . (Join-Path $package 'platform\windows\HONGAI-Windows.Common.ps1')
+          $srt = Join-Path $package 'node_modules\@anthropic-ai\sandbox-runtime\vendor\srt-win\x64\srt-win.exe'
+          if (Test-HongAiSandboxPresent -Status (Get-HongAiSandboxStatus -SrtWinPath $srt)) {
+            throw 'Sandbox account, credential, group, or WFP filter remained after rollback smoke.'
+          }
+      - name: Encrypt Windows native pilot for CI transport
+        if: runner.os == 'Windows' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main'))
+        shell: pwsh
+        run: |
+          $pilot = Join-Path $env:RUNNER_TEMP 'hongai-pilot'
+          $archives = @(Get-ChildItem -LiteralPath $pilot -File -Filter *.tgz)
+          if ($archives.Count -ne 1) { throw "Expected exactly one native pilot archive; found $($archives.Count)." }
+          $archive = $archives[0]
+          $record = "$($archive.FullName).build-record.json"
+          if (-not (Test-Path -LiteralPath $record -PathType Leaf)) { throw 'Native pilot build record is missing.' }
+          $transport = Join-Path $env:RUNNER_TEMP 'hongai-transport'
+          New-Item -ItemType Directory -Path $transport -Force | Out-Null
+          $encrypted = Join-Path $transport "$($archive.Name).enc"
+          $envelope = "$encrypted.envelope.json"
+          node tools/ci-artifact-transport.mjs encrypt `
+            --input $archive.FullName `
+            --output $encrypted `
+            --envelope $envelope `
+            --public-key (Join-Path $env:GITHUB_WORKSPACE 'keys\ci-artifact-transport-public.pem') `
+            --build-record $record
+          if ($LASTEXITCODE -ne 0) { throw 'Native pilot transport encryption failed.' }
+          Remove-Item -LiteralPath $archive.FullName -Force
+          if (Test-Path -LiteralPath $archive.FullName) { throw 'Plaintext native pilot remained after encryption.' }
+      - name: Encrypt macOS native pilot for CI transport
+        if: runner.os == 'macOS' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main'))
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -- "$RUNNER_TEMP/hongai-pilot/"*.tgz
+          if [ "$#" -ne 1 ] || [ ! -f "$1" ]; then
+            echo 'Expected exactly one native pilot archive.' >&2
+            exit 1
+          fi
+          archive="$1"
+          record="$archive.build-record.json"
+          test -f "$record"
+          transport="$RUNNER_TEMP/hongai-transport"
+          mkdir -p "$transport"
+          encrypted="$transport/$(basename "$archive").enc"
+          envelope="$encrypted.envelope.json"
+          node tools/ci-artifact-transport.mjs encrypt \
+            --input "$archive" \
+            --output "$encrypted" \
+            --envelope "$envelope" \
+            --public-key "$GITHUB_WORKSPACE/keys/ci-artifact-transport-public.pem" \
+            --build-record "$record"
+          rm -f -- "$archive"
+          test ! -e "$archive"
+      - name: Preserve Windows bootstrap executable modes in tar
+        if: runner.os == 'Windows' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main'))
+        shell: pwsh
+        run: |
+          $source = Join-Path $env:RUNNER_TEMP 'hongai-bootstrap'
+          $target = Join-Path $env:RUNNER_TEMP 'hongai-bootstrap-${{ matrix.artifact }}.tgz'
+          tar -czf $target -C $source .
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to package the public bootstrap.' }
+      - name: Preserve macOS bootstrap executable modes in tar
+        if: runner.os == 'macOS' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main'))
+        shell: bash
+        run: tar -czf "$RUNNER_TEMP/hongai-bootstrap-${{ matrix.artifact }}.tgz" -C "$RUNNER_TEMP/hongai-bootstrap" .
+      - name: Retain encrypted native pilot and non-sensitive build record
+        if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: hongai-edge-cage-encrypted-native-${{ matrix.artifact }}
+          # The public repository must never retain the plaintext native pilot.
+          # The RSA private transport key exists only in HONG AI offline custody.
+          path: |
+            ${{ runner.temp }}/hongai-transport/*.enc
+            ${{ runner.temp }}/hongai-transport/*.envelope.json
+            ${{ runner.temp }}/hongai-pilot/*.build-record.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Retain public bootstrap tar
+        if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: hongai-edge-cage-bootstrap-${{ matrix.artifact }}
+          path: ${{ runner.temp }}/hongai-bootstrap-${{ matrix.artifact }}.tgz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7

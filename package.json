@@ -1,6 +1,6 @@
 {
   "name": "@hongai/edge-cage",
-  "version": "0.2.0-alpha.3",
+  "version": "0.2.0-alpha.4",
   "description": "Cross-platform fail-closed sandbox and delivery controller for AI coding agents.",
   "type": "module",
   "license": "AGPL-3.0-only",
@@ -9,8 +9,11 @@
     "hongai-edge-cage": "dist/src/cli.js",
     "hongai-edge-cage-retrieve": "dist/services/delivery-client/retrieve.js",
     "hongai-edge-cage-deploy": "dist/services/delivery-client/deploy.js",
+    "hongai-edge-cage-abandon": "dist/services/delivery-client/abandon.js",
     "hongai-edge-cage-receipt": "dist/services/delivery-client/receipt.js",
-    "hongai-edge-cage-release-builder": "dist/src/release-builder.js"
+    "hongai-edge-cage-release-builder": "dist/src/release-builder.js",
+    "hongai-edge-cage-pilot-builder": "dist/src/pilot-builder.js",
+    "hongai-edge-cage-bootstrap-builder": "dist/src/bootstrap-builder.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -20,8 +23,11 @@
     "license:serve": "node dist/services/license-service/server.js",
     "delivery:retrieve": "node dist/services/delivery-client/retrieve.js",
     "delivery:deploy": "node dist/services/delivery-client/deploy.js",
+    "delivery:abandon": "node dist/services/delivery-client/abandon.js",
     "delivery:receipt": "node dist/services/delivery-client/receipt.js",
     "release:build": "node dist/src/release-builder.js",
+    "pilot:build": "node dist/src/pilot-builder.js",
+    "bootstrap:build": "node dist/src/bootstrap-builder.js",
     "test": "npm run build && node --test dist/tests/*.test.js"
   },
   "dependencies": {

@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 
-import { createHash, createPrivateKey, createPublicKey, randomBytes, randomUUID } from 'node:crypto';
+import { createHash, createHmac, createPrivateKey, createPublicKey, randomBytes, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { isAbsolute, resolve } from 'node:path';
 import {
   hashArtifactManifest,
+  hashActivationBinding,
   signArtifactManifest,
   verifyArtifactManifestSignature,
   wrapContentKeyForInstall,
@@ -19,8 +20,10 @@ import {
   mutateDatabase,
   readDatabase,
   verifySecret,
-  type LicenseDatabase
+  type LicenseDatabase,
+  type SecretHash
 } from './storage.js';
+import { publicLicenseServiceError } from './http-errors.js';
 
 const rootValue = process.env.HONGAI_LICENSE_DATA_ROOT;
 if (!rootValue || !isAbsolute(rootValue)) {
@@ -44,8 +47,30 @@ if (!auditPepper || auditPepper.length < 24) {
 let mutationQueue = Promise.resolve();
 const rateWindows = new Map<string, number[]>();
 const trustedProxy = process.env.HONGAI_LICENSE_TRUSTED_PROXY === '1';
-const allowLegacyCredentials = process.env.HONGAI_LICENSE_ALLOW_LEGACY_KEYS !== '0';
-const allowLegacyArtifacts = process.env.HONGAI_LICENSE_ALLOW_LEGACY_ARTIFACTS !== '0';
+// Secure-by-default: legacy unscoped secrets and unsigned artifact records are
+// accepted only during an explicitly scheduled migration window.
+const allowLegacyCredentials = process.env.HONGAI_LICENSE_ALLOW_LEGACY_KEYS === '1';
+const allowLegacyArtifacts = process.env.HONGAI_LICENSE_ALLOW_LEGACY_ARTIFACTS === '1';
+
+type ActivationRecord = LicenseDatabase['activations'][number] & {
+  protocolVersion?: 2;
+  tokenId?: string;
+  activationBindingSha256?: string;
+  recoveryTokenHash?: SecretHash;
+  recoveryExpiresAt?: string;
+  artifactManifestSha256?: string;
+};
+
+interface VerifiedArtifact {
+  artifact: LicenseDatabase['artifacts'][number];
+  legacyArtifact: boolean;
+  manifest: ArtifactManifest;
+  manifestSignature: string;
+  manifestSha256: string;
+}
+
+const activationRecoverySeconds = 24 * 60 * 60;
+const envelopeTtlSeconds = 5 * 60;
 
 function json(response: ServerResponse, status: number, value: unknown): void {
   response.statusCode = status;
@@ -124,10 +149,291 @@ function isLegacySecret(value: string, prefix: 'HA-LIC' | 'HA-OTP'): boolean {
   return new RegExp(`^${prefix}-[A-Za-z0-9_-]{32}$`).test(value);
 }
 
+function authenticatedLicense(
+  database: LicenseDatabase,
+  licenseKey: string,
+  artifactId: string
+): LicenseDatabase['licenses'][number] {
+  const licenseId = scopedSecretId(licenseKey, 'HA-LIC');
+  if (!licenseId && (!allowLegacyCredentials || !isLegacySecret(licenseKey, 'HA-LIC'))) {
+    throw new Error('LICENSE_DENIED');
+  }
+  const license = licenseId
+    ? database.licenses.find((candidate) => candidate.id === licenseId)
+    : database.licenses.find((candidate) => candidate.enabled && verifySecret(licenseKey, candidate.licenseHash));
+  if (!license?.enabled || (licenseId !== undefined && !verifySecret(licenseKey, license.licenseHash))) {
+    throw new Error('LICENSE_DENIED');
+  }
+  if (!license.allowedArtifacts.includes(artifactId)) throw new Error('LICENSE_DENIED');
+  return license;
+}
+
+function verifiedArtifact(
+  database: LicenseDatabase,
+  artifactId: string,
+  signingPrivateKeyPem: string,
+  signingPublicKeyPem: string
+): VerifiedArtifact {
+  const artifact = database.artifacts.find((candidate) => candidate.id === artifactId && candidate.enabled);
+  if (!artifact) throw new Error('ARTIFACT_DENIED');
+  const legacyArtifact = !artifact.manifest || !artifact.manifestSignature;
+  if (legacyArtifact && !allowLegacyArtifacts) throw new Error('ARTIFACT_DENIED');
+  const manifest: ArtifactManifest = artifact.manifest ?? {
+    version: 1,
+    artifactId: artifact.id,
+    downloadUrl: artifact.downloadUrl,
+    ciphertextSha256: artifact.ciphertextSha256,
+    plaintextSha256: artifact.plaintextSha256
+  };
+  const manifestSignature = artifact.manifestSignature ?? signArtifactManifest(manifest, signingPrivateKeyPem);
+  if (
+    manifest.artifactId !== artifact.id ||
+    manifest.downloadUrl !== artifact.downloadUrl ||
+    manifest.ciphertextSha256 !== artifact.ciphertextSha256 ||
+    manifest.plaintextSha256 !== artifact.plaintextSha256 ||
+    !verifyArtifactManifestSignature(manifest, manifestSignature, signingPublicKeyPem)
+  ) {
+    throw new Error('ARTIFACT_DENIED');
+  }
+  return {
+    artifact,
+    legacyArtifact,
+    manifest,
+    manifestSignature,
+    manifestSha256: hashArtifactManifest(manifest)
+  };
+}
+
+function activationSecret(
+  masterKey: Buffer,
+  purpose: 'receipt' | 'recovery',
+  activationId: string
+): string {
+  const digest = createHmac('sha256', masterKey)
+    .update(`HONG-AI-EDGE-CAGE-${purpose.toUpperCase()}-TOKEN-V1\0${activationId}`, 'utf8')
+    .digest('base64url');
+  return purpose === 'receipt' ? `HA-RCT-${digest}` : `HA-RSM-${digest}`;
+}
+
+function issueActivationResponse(args: {
+  verified: VerifiedArtifact;
+  activationId: string;
+  installId: string;
+  clientPublicKeyPem: string;
+  receiptToken: string;
+  recoveryToken?: string;
+  signingPrivateKeyPem: string;
+  masterKey: Buffer;
+}): Record<string, unknown> {
+  const contentKey = decryptAtRest(
+    args.verified.artifact.encryptedContentKey,
+    args.masterKey,
+    args.verified.legacyArtifact ? undefined : Buffer.from(args.verified.manifestSha256, 'hex')
+  );
+  let envelope;
+  try {
+    envelope = wrapContentKeyForInstall({
+      contentKey,
+      artifactId: args.verified.manifest.artifactId,
+      artifactManifestSha256: args.verified.manifestSha256,
+      installId: args.installId,
+      clientPublicKeyPem: args.clientPublicKeyPem,
+      signingPrivateKeyPem: args.signingPrivateKeyPem,
+      ttlSeconds: envelopeTtlSeconds
+    });
+  } finally {
+    contentKey.fill(0);
+  }
+  return {
+    activationId: args.activationId,
+    receiptToken: args.receiptToken,
+    ...(args.recoveryToken ? { recoveryToken: args.recoveryToken } : {}),
+    artifact: {
+      id: args.verified.manifest.artifactId,
+      downloadUrl: args.verified.manifest.downloadUrl,
+      ciphertextSha256: args.verified.manifest.ciphertextSha256,
+      plaintextSha256: args.verified.manifest.plaintextSha256,
+      manifestSignature: args.verified.manifestSignature
+    },
+    envelope
+  };
+}
+
 async function activate(request: IncomingMessage, response: ServerResponse): Promise<void> {
   const payload = await body(request);
   const licenseKey = stringField(payload, 'licenseKey', 256);
   const oneTimeToken = stringField(payload, 'oneTimeToken', 256);
+  const artifactId = stringField(payload, 'artifactId', 160);
+  const installId = stringField(payload, 'installId', 160);
+  const clientPublicKeyPem = stringField(payload, 'clientPublicKeyPem', 4096);
+  const recoverableProtocol = payload.activationProtocolVersion === 2;
+  if (payload.activationProtocolVersion !== undefined && !recoverableProtocol) {
+    throw new Error('INVALID_REQUEST');
+  }
+  const signingPrivateKeyPem = await readFile(resolve(dataRoot, 'signing-private.pem'), 'utf8');
+  const signingPublicKeyPem = await readFile(resolve(dataRoot, 'signing-public.pem'), 'utf8');
+  const masterKey = Buffer.from((await readFile(resolve(dataRoot, 'master.key'), 'utf8')).trim(), 'base64url');
+
+  const actorHash = remoteHash(request);
+  const result = await mutate((database) => {
+    const tokenId = scopedSecretId(oneTimeToken, 'HA-OTP');
+    const legacyCredentials = !scopedSecretId(licenseKey, 'HA-LIC') || !tokenId;
+    if (legacyCredentials && !allowLegacyCredentials) throw new Error('LICENSE_DENIED');
+    if (!tokenId && !isLegacySecret(oneTimeToken, 'HA-OTP')) {
+      throw new Error('LICENSE_DENIED');
+    }
+    const license = authenticatedLicense(database, licenseKey, artifactId);
+    const token = database.tokens.find((candidate) =>
+      (tokenId === undefined || candidate.id === tokenId) &&
+      candidate.licenseId === license.id &&
+      !candidate.revokedAt &&
+      verifySecret(oneTimeToken, candidate.tokenHash)
+    );
+    if (!token) throw new Error('TOKEN_DENIED');
+    const artifact = verifiedArtifact(database, artifactId, signingPrivateKeyPem, signingPublicKeyPem);
+    if (!recoverableProtocol) {
+      if (token.usedAt || Date.parse(token.expiresAt) < Date.now()) throw new Error('TOKEN_DENIED');
+      const now = new Date();
+      const activationId = randomUUID();
+      const receiptToken = `HA-RCT-${randomBytes(24).toString('base64url')}`;
+      token.usedAt = now.toISOString();
+      database.activations.push({
+        id: activationId,
+        licenseId: license.id,
+        artifactId,
+        installIdHash: createHash('sha256').update(`${auditPepper}\0${installId}`).digest('hex'),
+        receiptTokenHash: hashSecret(receiptToken),
+        requestedAt: now.toISOString(),
+        deliveredAt: null,
+        completedAt: null,
+        result: 'KEY_ISSUED'
+      });
+      appendDatabaseEvent(database, 'CONTENT_KEY_ISSUED', actorHash, {
+        activationId,
+        licenseId: license.id,
+        artifactId,
+        legacyCredentials,
+        legacyArtifact: artifact.legacyArtifact,
+        manifestSha256: artifact.manifestSha256,
+        recoverable: false
+      });
+      return issueActivationResponse({
+        verified: artifact,
+        activationId,
+        receiptToken,
+        installId,
+        clientPublicKeyPem,
+        signingPrivateKeyPem,
+        masterKey
+      });
+    }
+    const bindingSha256 = hashActivationBinding({ artifactId, installId, clientPublicKeyPem });
+    const recoverableActivations = database.activations as ActivationRecord[];
+    const existing = recoverableActivations.find((candidate) => candidate.tokenId === token.id);
+
+    if (token.usedAt) {
+      if (
+        !existing ||
+        existing.artifactManifestSha256 !== artifact.manifestSha256 ||
+        existing.protocolVersion !== 2 ||
+        existing.licenseId !== license.id ||
+        existing.artifactId !== artifactId ||
+        existing.activationBindingSha256 !== bindingSha256 ||
+        !existing.recoveryTokenHash ||
+        !existing.recoveryExpiresAt ||
+        Date.parse(existing.recoveryExpiresAt) < Date.now() ||
+        existing.result === 'INSTALLED' ||
+        existing.result === 'FAILED'
+      ) {
+        throw new Error('TOKEN_DENIED');
+      }
+      const receiptToken = activationSecret(masterKey, 'receipt', existing.id);
+      const recoveryToken = activationSecret(masterKey, 'recovery', existing.id);
+      if (
+        !verifySecret(receiptToken, existing.receiptTokenHash) ||
+        !verifySecret(recoveryToken, existing.recoveryTokenHash)
+      ) {
+        throw new Error('ACTIVATION_DENIED');
+      }
+      appendDatabaseEvent(database, 'ACTIVATION_IDEMPOTENT_RETRY', actorHash, {
+        activationId: existing.id,
+        licenseId: license.id,
+        artifactId,
+        manifestSha256: artifact.manifestSha256,
+        activationBindingSha256: bindingSha256
+      });
+      return {
+        ...issueActivationResponse({
+          verified: artifact,
+          activationId: existing.id,
+          receiptToken,
+          recoveryToken,
+          installId,
+          clientPublicKeyPem,
+          signingPrivateKeyPem,
+          masterKey
+        }),
+        recoveryToken
+      };
+    }
+
+    if (Date.parse(token.expiresAt) < Date.now()) throw new Error('TOKEN_DENIED');
+    if (existing) throw new Error('TOKEN_DENIED');
+    const now = new Date();
+    const activationId = randomUUID();
+    const receiptToken = activationSecret(masterKey, 'receipt', activationId);
+    const recoveryToken = activationSecret(masterKey, 'recovery', activationId);
+    const activation: ActivationRecord = {
+      id: activationId,
+      licenseId: license.id,
+      artifactId,
+      installIdHash: createHash('sha256').update(`${auditPepper}\0${installId}`).digest('hex'),
+      receiptTokenHash: hashSecret(receiptToken),
+      requestedAt: now.toISOString(),
+      deliveredAt: null,
+      completedAt: null,
+      result: 'KEY_ISSUED',
+      protocolVersion: 2,
+      tokenId: token.id,
+      activationBindingSha256: bindingSha256,
+      recoveryTokenHash: hashSecret(recoveryToken),
+      recoveryExpiresAt: new Date(now.getTime() + activationRecoverySeconds * 1000).toISOString(),
+      artifactManifestSha256: artifact.manifestSha256
+    };
+    token.usedAt = now.toISOString();
+    recoverableActivations.push(activation);
+    appendDatabaseEvent(database, 'CONTENT_KEY_ISSUED', actorHash, {
+      activationId,
+      licenseId: license.id,
+      artifactId,
+      legacyCredentials,
+      legacyArtifact: artifact.legacyArtifact,
+      manifestSha256: artifact.manifestSha256,
+      activationBindingSha256: bindingSha256,
+      recoverable: true
+    });
+    return {
+      ...issueActivationResponse({
+        verified: artifact,
+        activationId,
+        receiptToken,
+        recoveryToken,
+        installId,
+        clientPublicKeyPem,
+        signingPrivateKeyPem,
+        masterKey
+      }),
+      recoveryToken
+    };
+  }).finally(() => masterKey.fill(0));
+  json(response, 200, { ok: true, ...result });
+}
+
+async function resumeActivation(request: IncomingMessage, response: ServerResponse): Promise<void> {
+  const payload = await body(request);
+  const licenseKey = stringField(payload, 'licenseKey', 256);
+  const activationId = stringField(payload, 'activationId', 160);
+  const recoveryToken = stringField(payload, 'recoveryToken', 256);
   const artifactId = stringField(payload, 'artifactId', 160);
   const installId = stringField(payload, 'installId', 160);
   const clientPublicKeyPem = stringField(payload, 'clientPublicKeyPem', 4096);
@@ -137,105 +443,49 @@ async function activate(request: IncomingMessage, response: ServerResponse): Pro
 
   const actorHash = remoteHash(request);
   const result = await mutate((database) => {
-    const licenseId = scopedSecretId(licenseKey, 'HA-LIC');
-    const tokenId = scopedSecretId(oneTimeToken, 'HA-OTP');
-    const legacyCredentials = !licenseId || !tokenId;
-    if (legacyCredentials && !allowLegacyCredentials) throw new Error('LICENSE_DENIED');
-    if ((!licenseId && !isLegacySecret(licenseKey, 'HA-LIC')) || (!tokenId && !isLegacySecret(oneTimeToken, 'HA-OTP'))) {
-      throw new Error('LICENSE_DENIED');
-    }
-    const license = licenseId
-      ? database.licenses.find((candidate) => candidate.id === licenseId)
-      : database.licenses.find((candidate) => candidate.enabled && verifySecret(licenseKey, candidate.licenseHash));
-    if (!license?.enabled || (licenseId !== undefined && !verifySecret(licenseKey, license.licenseHash))) {
-      throw new Error('LICENSE_DENIED');
-    }
-    if (!license || !license.allowedArtifacts.includes(artifactId)) throw new Error('LICENSE_DENIED');
-    const token = database.tokens.find((candidate) =>
-      (tokenId === undefined || candidate.id === tokenId) &&
-      candidate.licenseId === license.id &&
-      !candidate.usedAt &&
-      !candidate.revokedAt &&
-      Date.parse(candidate.expiresAt) >= Date.now() &&
-      verifySecret(oneTimeToken, candidate.tokenHash)
-    );
-    if (!token) throw new Error('TOKEN_DENIED');
-    const artifact = database.artifacts.find((candidate) => candidate.id === artifactId && candidate.enabled);
-    if (!artifact) throw new Error('ARTIFACT_DENIED');
-    const legacyArtifact = !artifact.manifest || !artifact.manifestSignature;
-    if (legacyArtifact && !allowLegacyArtifacts) throw new Error('ARTIFACT_DENIED');
-    const manifest: ArtifactManifest = artifact.manifest ?? {
-      version: 1,
-      artifactId: artifact.id,
-      downloadUrl: artifact.downloadUrl,
-      ciphertextSha256: artifact.ciphertextSha256,
-      plaintextSha256: artifact.plaintextSha256
-    };
-    const manifestSignature = artifact.manifestSignature ?? signArtifactManifest(manifest, signingPrivateKeyPem);
+    const license = authenticatedLicense(database, licenseKey, artifactId);
+    const activation = (database.activations as ActivationRecord[])
+      .find((candidate) => candidate.id === activationId);
+    const bindingSha256 = hashActivationBinding({ artifactId, installId, clientPublicKeyPem });
+    const artifact = verifiedArtifact(database, artifactId, signingPrivateKeyPem, signingPublicKeyPem);
     if (
-      manifest.artifactId !== artifact.id ||
-      manifest.downloadUrl !== artifact.downloadUrl ||
-      manifest.ciphertextSha256 !== artifact.ciphertextSha256 ||
-      manifest.plaintextSha256 !== artifact.plaintextSha256 ||
-      !verifyArtifactManifestSignature(manifest, manifestSignature, signingPublicKeyPem)
+      !activation ||
+      activation.protocolVersion !== 2 ||
+      activation.licenseId !== license.id ||
+      activation.artifactId !== artifactId ||
+      activation.activationBindingSha256 !== bindingSha256 ||
+      activation.artifactManifestSha256 !== artifact.manifestSha256 ||
+      !activation.recoveryTokenHash ||
+      !activation.recoveryExpiresAt ||
+      Date.parse(activation.recoveryExpiresAt) < Date.now() ||
+      !verifySecret(recoveryToken, activation.recoveryTokenHash) ||
+      activation.result === 'INSTALLED' ||
+      activation.result === 'FAILED'
     ) {
-      throw new Error('ARTIFACT_DENIED');
+      throw new Error('ACTIVATION_DENIED');
     }
-    const manifestSha256 = hashArtifactManifest(manifest);
-
-    token.usedAt = new Date().toISOString();
-    const activationId = randomUUID();
-    const receiptToken = `HA-RCT-${randomBytes(24).toString('base64url')}`;
-    database.activations.push({
-      id: activationId,
+    const expectedRecoveryToken = activationSecret(masterKey, 'recovery', activation.id);
+    const receiptToken = activationSecret(masterKey, 'receipt', activation.id);
+    if (!verifySecret(receiptToken, activation.receiptTokenHash)) {
+      throw new Error('ACTIVATION_DENIED');
+    }
+    appendDatabaseEvent(database, 'ACTIVATION_ENVELOPE_RENEWED', actorHash, {
+      activationId: activation.id,
       licenseId: license.id,
       artifactId,
-      installIdHash: createHash('sha256').update(`${auditPepper}\0${installId}`).digest('hex'),
-      receiptTokenHash: hashSecret(receiptToken),
-      requestedAt: new Date().toISOString(),
-      deliveredAt: null,
-      completedAt: null,
-      result: 'KEY_ISSUED'
+      manifestSha256: artifact.manifestSha256,
+      activationBindingSha256: bindingSha256
     });
-    appendDatabaseEvent(database, 'CONTENT_KEY_ISSUED', actorHash, {
-      activationId,
-      licenseId: license.id,
-      artifactId,
-      legacyCredentials,
-      legacyArtifact,
-      manifestSha256
-    });
-    const contentKey = decryptAtRest(
-      artifact.encryptedContentKey,
-      masterKey,
-      legacyArtifact ? undefined : Buffer.from(manifestSha256, 'hex')
-    );
-    let envelope;
-    try {
-      envelope = wrapContentKeyForInstall({
-        contentKey,
-        artifactId,
-        artifactManifestSha256: manifestSha256,
-        installId,
-        clientPublicKeyPem,
-        signingPrivateKeyPem,
-        ttlSeconds: 300
-      });
-    } finally {
-      contentKey.fill(0);
-    }
-    return {
-      activationId,
+    return issueActivationResponse({
+      verified: artifact,
+      activationId: activation.id,
+      installId,
+      clientPublicKeyPem,
       receiptToken,
-      artifact: {
-        id: manifest.artifactId,
-        downloadUrl: manifest.downloadUrl,
-        ciphertextSha256: manifest.ciphertextSha256,
-        plaintextSha256: manifest.plaintextSha256,
-        manifestSignature
-      },
-      envelope
-    };
+      recoveryToken: expectedRecoveryToken,
+      signingPrivateKeyPem,
+      masterKey
+    });
   }).finally(() => masterKey.fill(0));
   json(response, 200, { ok: true, ...result });
 }
@@ -295,6 +545,14 @@ const server = createServer(async (request, response) => {
       await activate(request, response);
       return;
     }
+    if (request.method === 'POST' && request.url === '/v1/activation/resume') {
+      if (!request.headers['content-type']?.toLowerCase().startsWith('application/json')) {
+        json(response, 415, { ok: false, error: 'JSON_REQUIRED' });
+        return;
+      }
+      await resumeActivation(request, response);
+      return;
+    }
     if (request.method === 'POST' && request.url === '/v1/receipt') {
       if (!request.headers['content-type']?.toLowerCase().startsWith('application/json')) {
         json(response, 415, { ok: false, error: 'JSON_REQUIRED' });
@@ -305,9 +563,8 @@ const server = createServer(async (request, response) => {
     }
     json(response, 404, { ok: false, error: 'NOT_FOUND' });
   } catch (error) {
-    const code = error instanceof Error ? error.message : 'INTERNAL_ERROR';
-    const safeCode = /^[A-Z_]+$/.test(code) ? code : 'INVALID_REQUEST';
-    json(response, safeCode.endsWith('DENIED') ? 403 : 400, { ok: false, error: safeCode });
+    const failure = publicLicenseServiceError(error);
+    json(response, failure.status, { ok: false, error: failure.code });
   }
 });
 server.requestTimeout = 15_000;

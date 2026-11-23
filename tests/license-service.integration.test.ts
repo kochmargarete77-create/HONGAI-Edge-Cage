@@ -88,6 +88,7 @@ test('license service consumes one-time tokens and records delivery in its audit
     const activationBody = {
       licenseKey: issued.licenseKey,
       oneTimeToken: issued.oneTimeToken,
+      activationProtocolVersion: 2,
       artifactId: 'integration-artifact',
       installId: identity.installId,
       clientPublicKeyPem: identity.publicKeyPem
@@ -102,8 +103,53 @@ test('license service consumes one-time tokens and records delivery in its audit
       ok: boolean;
       activationId: string;
       receiptToken: string;
+      recoveryToken: string;
+      envelope: { issuedAt: string; expiresAt: string };
     };
     assert.equal(activation.ok, true);
+
+    // A lost HTTP response must not burn the OTP. Repeating the exact binding
+    // returns the same activation credentials and a freshly signed envelope.
+    const retryResponse = await fetch(`${baseUrl}/v1/activate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(activationBody)
+    });
+    assert.equal(retryResponse.status, 200);
+    const retry = await retryResponse.json() as typeof activation;
+    assert.equal(retry.activationId, activation.activationId);
+    assert.equal(retry.receiptToken, activation.receiptToken);
+    assert.equal(retry.recoveryToken, activation.recoveryToken);
+
+    const resumeResponse = await fetch(`${baseUrl}/v1/activation/resume`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        licenseKey: issued.licenseKey,
+        activationId: activation.activationId,
+        recoveryToken: activation.recoveryToken,
+        artifactId: 'integration-artifact',
+        installId: identity.installId,
+        clientPublicKeyPem: identity.publicKeyPem
+      })
+    });
+    assert.equal(resumeResponse.status, 200);
+    const resumed = await resumeResponse.json() as typeof activation;
+    assert.equal(resumed.activationId, activation.activationId);
+    assert.equal(resumed.receiptToken, activation.receiptToken);
+    assert.equal(resumed.recoveryToken, activation.recoveryToken);
+
+    const otherIdentity = generateInstallIdentity();
+    const reboundResponse = await fetch(`${baseUrl}/v1/activate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...activationBody,
+        installId: otherIdentity.installId,
+        clientPublicKeyPem: otherIdentity.publicKeyPem
+      })
+    });
+    assert.equal(reboundResponse.status, 403);
 
     const receiptResponse = await fetch(`${baseUrl}/v1/receipt`, {
       method: 'POST',
@@ -190,6 +236,21 @@ test('license service consumes one-time tokens and records delivery in its audit
     ) as LicenseDatabase;
     assert.equal(database.activations.length, 1);
     assert.equal(database.activations[0]?.result, 'INSTALLED');
+    const recoverable = database.activations[0] as (LicenseDatabase['activations'][number] & {
+      protocolVersion?: number;
+      tokenId?: string;
+      activationBindingSha256?: string;
+      artifactManifestSha256?: string;
+      recoveryTokenHash?: unknown;
+      recoveryExpiresAt?: string;
+    });
+    assert.equal(recoverable.protocolVersion, 2);
+    assert.equal(typeof recoverable.tokenId, 'string');
+    assert.match(recoverable.activationBindingSha256 ?? '', /^[a-f0-9]{64}$/);
+    assert.match(recoverable.artifactManifestSha256 ?? '', /^[a-f0-9]{64}$/);
+    assert.ok(recoverable.recoveryTokenHash);
+    assert.ok(Date.parse(recoverable.recoveryExpiresAt ?? '') > Date.now());
+    assert.equal(database.events.some((event) => event.type === 'ACTIVATION_ENVELOPE_RENEWED'), true);
     assert.equal(verifyDatabaseEvents(database.events), true);
   } finally {
     if (child && child.exitCode === null) {

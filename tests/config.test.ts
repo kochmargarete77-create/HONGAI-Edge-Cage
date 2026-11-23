@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, mkdir, realpath, rm, symlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
-import { customerConfigSchema } from '../src/config.js';
+import { assertHostStoragePolicy, customerConfigSchema } from '../src/config.js';
 import { renderSandboxPolicy } from '../src/policy.js';
 import { renderClashScript } from '../src/clash.js';
 import vm from 'node:vm';
@@ -80,6 +83,73 @@ test('rejects lowering the commercial delivery threshold below 90', () => {
   const unsafe = structuredClone(validConfig);
   unsafe.assessment.minimumScore = 85;
   assert.throws(() => customerConfigSchema.parse(unsafe));
+});
+
+test('rejects overlapping workspace and controller state trees with native path semantics', () => {
+  for (const [strategy, workspace, stateRoot] of [
+    ['windows', 'E:/HONGAI/customer', 'E:/HONGAI/customer/state'],
+    ['windows', 'E:/HONGAI/customer/STATE', 'e:/hongai/customer'],
+    ['macos', '/Users/Shared/HONGAI/customer', '/Users/Shared/HONGAI/customer/state'],
+    ['macos', '/Users/Shared/HONGAI/customer/state', '/Users/Shared/HONGAI/customer']
+  ] as const) {
+    const unsafe = structuredClone(validConfig);
+    unsafe.platform.strategy = strategy;
+    unsafe.workspace.path = workspace;
+    unsafe.workspace.stateRoot = stateRoot;
+    assert.throws(() => customerConfigSchema.parse(unsafe));
+  }
+});
+
+test('filesystem allowlists accept only the exact product-safe placeholder sets', () => {
+  for (const mutate of [
+    (value: typeof validConfig) => { value.filesystem.allowRead.push('C:/Users'); },
+    (value: typeof validConfig) => { value.filesystem.allowRead.push('${WORKSPACE}'); },
+    (value: typeof validConfig) => { value.filesystem.allowRead = ['${WORKSPACE}', '${AGENT_STATE}']; },
+    (value: typeof validConfig) => { value.filesystem.allowWrite = ['${WORKSPACE}']; },
+    (value: typeof validConfig) => { value.filesystem.allowWrite.push('${INSTALL_ROOT}'); },
+    (value: typeof validConfig) => { value.filesystem.denyRead.push('${AGENT_STATE}'); },
+    (value: typeof validConfig) => { value.filesystem.denyWrite.push('${WORKSPACE}'); }
+  ]) {
+    const unsafe = structuredClone(validConfig);
+    mutate(unsafe);
+    assert.throws(() => customerConfigSchema.parse(unsafe));
+  }
+});
+
+test('macOS storage policy rejects symlink ancestors and canonical path escape', {
+  skip: process.platform !== 'darwin'
+}, async () => {
+  // macOS commonly exposes /var as a symlink to /private/var. Canonicalize the
+  // test root first so the rejection below proves our own injected link is the
+  // offending ancestor rather than an operating-system temporary-path alias.
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'hongai-config-storage-')));
+  try {
+    const configuredRoot = join(root, 'configured');
+    const outsideRoot = join(root, 'outside');
+    const stateRoot = join(root, 'state');
+    await Promise.all([
+      mkdir(configuredRoot, { recursive: true }),
+      mkdir(outsideRoot, { recursive: true }),
+      mkdir(stateRoot, { recursive: true })
+    ]);
+    const link = join(configuredRoot, 'workspace-link');
+    await symlink(outsideRoot, link, 'dir');
+    assert.notEqual(await realpath(link), link);
+
+    for (const workspacePath of [link, join(link, 'future-child')]) {
+      const unsafe = structuredClone(validConfig);
+      unsafe.platform.strategy = 'macos';
+      unsafe.workspace.path = workspacePath;
+      unsafe.workspace.stateRoot = stateRoot;
+      const parsed = customerConfigSchema.parse(unsafe);
+      await assert.rejects(
+        assertHostStoragePolicy(parsed),
+        /symbolic-link ancestor|resolves outside its configured path/
+      );
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test('renders a parent-proxy and strict allowlist policy', () => {
@@ -202,4 +272,6 @@ test('does not inherit host identity and credential environment variables', () =
   assert.equal(environment.ANTHROPIC_API_KEY, undefined);
   assert.equal(environment.SSH_AUTH_SOCK, undefined);
   assert.equal(environment.TZ, 'America/Los_Angeles');
+  assert.equal(environment.DISABLE_UPDATES, '1');
+  assert.equal(environment.DISABLE_INSTALLATION_CHECKS, '1');
 });

@@ -12,6 +12,7 @@ import {
   verifyAuditChain
 } from './audit.js';
 import { runPreflight as runPreflightDefault, type PreflightResult } from './preflight.js';
+import { productVersion } from './product.js';
 
 const mimeTypes: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -149,6 +150,7 @@ export async function createDashboardServer(
   const appendAuditEvent = options.appendAuditEvent ?? appendAuditEventDefault;
   const readAuditEvents = options.readAuditEvents ?? readAuditEventsDefault;
   const state: DashboardState = { lastPreflight: null, lastPreflightAt: null };
+  const version = await productVersion();
   let bootstrapExchange: { sessionToken: string; expiresAt: number } | undefined;
   const sessionTokens = new Set<string>();
   await access(join(root, 'index.html'));
@@ -193,7 +195,7 @@ export async function createDashboardServer(
           sendJson(response, 200, {
             ok: true,
             product: 'HONG AI Edge Cage',
-            version: '0.2.0-alpha.3',
+            version,
             environment: config.environment,
             platform: config.platform.strategy,
             workspace: config.workspace.path,

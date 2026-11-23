@@ -8,5 +8,8 @@
 *.yml text eol=lf
 *.md text eol=lf
 *.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.command text eol=lf
+third_party/* -whitespace
 /.github export-ignore
 /.gitignore export-ignore

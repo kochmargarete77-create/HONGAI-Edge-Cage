@@ -3,29 +3,31 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { ZodError } from 'zod';
-import { loadCustomerConfig } from './config.js';
+import { assertHostStoragePolicy, loadCustomerConfig } from './config.js';
 import { renderSandboxPolicy } from './policy.js';
 import { runPreflight } from './preflight.js';
 import { launchSandboxedClaude, prepareEnvironment, smokeTestSandbox } from './runtime.js';
 import { credentialsFromEnvironment, renderClashScript } from './clash.js';
 import { loadAndCompileCustomerIntake, serializeCustomerConfig } from './intake.js';
 import { startDashboard } from './dashboard.js';
+import { productVersion } from './product.js';
+import { createSupportBundle } from './support.js';
 
 interface CliArguments {
-  command: 'init' | 'validate' | 'render' | 'preflight' | 'doctor' | 'dashboard' | 'launch' | 'clash-script';
+  command: 'init' | 'validate' | 'render' | 'preflight' | 'doctor' | 'dashboard' | 'launch' | 'clash-script' | 'support-bundle';
   configPath: string;
   outputPath?: string;
   passthrough: string[];
 }
 
 function usage(): never {
-  console.error('Usage: hongai-edge-cage <init|validate|render|preflight|doctor|dashboard|launch|clash-script> --config <file> [--output <file>] [-- <claude args>]');
+  console.error('Usage: hongai-edge-cage <init|validate|render|preflight|doctor|dashboard|launch|clash-script|support-bundle> --config <file> [--output <file>] [-- <claude args>]');
   process.exit(2);
 }
 
 function parseArguments(argv: string[]): CliArguments {
   const [command, ...rest] = argv;
-  if (!command || !['init', 'validate', 'render', 'preflight', 'doctor', 'dashboard', 'launch', 'clash-script'].includes(command)) {
+  if (!command || !['init', 'validate', 'render', 'preflight', 'doctor', 'dashboard', 'launch', 'clash-script', 'support-bundle'].includes(command)) {
     return usage();
   }
 
@@ -73,6 +75,20 @@ async function main(): Promise<void> {
   }
 
   const config = await loadCustomerConfig(args.configPath);
+  await assertHostStoragePolicy(config);
+
+  if (args.command === 'support-bundle') {
+    const outputPath = args.outputPath ?? resolve(
+      config.workspace.stateRoot,
+      'controller',
+      'support',
+      `support-${new Date().toISOString().replace(/[:.]/g, '-')}.json`
+    );
+    const result = await createSupportBundle(config, outputPath);
+    console.log(JSON.stringify(result, null, 2));
+    if (!result.ok) process.exitCode = 1;
+    return;
+  }
 
   if (args.command === 'validate') {
     console.log(JSON.stringify({ ok: true, environment: config.environment }, null, 2));
@@ -119,12 +135,13 @@ async function main(): Promise<void> {
   }
 
   if (args.command === 'doctor') {
+    const version = await productVersion();
     const result = await runPreflight(config);
     if (!result.ok) {
       console.log(JSON.stringify({
         ok: false,
         product: 'HONG AI Edge Cage',
-        version: '0.2.0-alpha.3',
+        version,
         platform: process.platform,
         architecture: process.arch,
         node: process.version,
@@ -142,7 +159,7 @@ async function main(): Promise<void> {
       console.log(JSON.stringify({
         ok: doctorOk,
         product: 'HONG AI Edge Cage',
-        version: '0.2.0-alpha.3',
+        version,
         platform: process.platform,
         architecture: process.arch,
         node: process.version,

@@ -30,6 +30,6 @@ HONG AI Edge Cage 是面向官方 Claude Code CLI 的跨平台故障封闭隔离
 
 ## 当前状态
 
-`0.2.0-alpha.3` 是可测试的开发里程碑，还不是已经签名的客户安装包。部署前请阅读 [部署说明](docs/DEPLOYMENT.md)、[架构](docs/ARCHITECTURE.md)、[安全模型](docs/SECURITY-MODEL.md)、[隔离等级](docs/ISOLATION-TIERS.md)、[受控交付协议](docs/SECURE-DELIVERY.md)、[授权服务运维](docs/LICENSE-SERVICE.md)、[发布准备](docs/RELEASE-PROCESS.md) 和 [验收矩阵](docs/ACCEPTANCE-MATRIX.md)。
+`0.2.0-alpha.4` 已加入按平台/架构构建的离线试点包、单次授权恢复、事务式落盘、回滚/自检入口和脱敏支持包。它属于 HONG AI 操作员受控的未签名试点版，还不是已经完成 Apple 公证或 Windows Authenticode 签名的客户自助安装包。部署前请阅读 [试点交付手册](docs/PILOT-DELIVERY.md)、[部署说明](docs/DEPLOYMENT.md)、[架构](docs/ARCHITECTURE.md)、[安全模型](docs/SECURITY-MODEL.md)、[隔离等级](docs/ISOLATION-TIERS.md)、[受控交付协议](docs/SECURE-DELIVERY.md)、[授权服务运维](docs/LICENSE-SERVICE.md)、[发布准备](docs/RELEASE-PROCESS.md) 和 [验收矩阵](docs/ACCEPTANCE-MATRIX.md)。
 
 本项目不是 Anthropic 产品、认证或官方评分。每位终端用户通过未修改的官方 Claude Code 流程使用自己控制的账号完成认证。
