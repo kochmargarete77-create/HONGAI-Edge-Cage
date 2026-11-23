@@ -2,7 +2,7 @@
 
 Cross-platform, fail-closed isolation and delivery controller for the official Claude Code CLI.
 
-HONG AI Edge Cage is a secondary development of [ClaudeCage](https://github.com/PACHAKUTlQ/ClaudeCage). The upstream portable Linux backend is retained for compatibility; the new default architecture uses Anthropic Sandbox Runtime for Windows, macOS and Linux, plus a customer-authorized Clash chain and a continuously verified final exit.
+HONG AI Edge Cage is a secondary development of [ClaudeCage](https://github.com/PACHAKUTlQ/ClaudeCage). The supported alpha delivery path targets Windows and macOS with Anthropic Sandbox Runtime, a customer-authorized Clash chain and a continuously verified final exit. The upstream portable Linux backend is retained as an experimental compatibility path, not as an accepted HONG AI customer deployment.
 
 ## Current alpha capabilities
 
@@ -18,9 +18,10 @@ HONG AI Edge Cage is a secondary development of [ClaudeCage](https://github.com/
 - Windows WFP provisioning scripts and macOS Seatbelt launch scripts.
 - HONG AI hard-gate acceptance matrix.
 - Minimal customer-intake compiler that expands front-hop/final-exit fields into a full strict policy.
-- Loopback-only HONG AI control room with preflight and a tamper-evident audit timeline.
-- Encrypted GitHub Release delivery with long-lived licenses and single-use tokens.
-- Verified retrieval, safe source extraction, fixed platform installers, and installation receipts.
+- Loopback-only HONG AI control room that distinguishes configured policy, observed preflight and actual runtime state.
+- Encrypted GitHub Release delivery with signed artifact identity, revocable long-lived licenses and single-use tokens.
+- Cross-process authorization-store locking and an idempotent, monotonic delivery-receipt state machine.
+- Verified retrieval, collision-safe source extraction, staging-first platform installers, and failure cleanup.
 - Allowlisted host environment with isolated AppData/XDG/npm/Git/GnuPG state.
 
 ## Safety invariant
@@ -42,7 +43,7 @@ Read [deployment](docs/DEPLOYMENT.md), [architecture](docs/ARCHITECTURE.md), [se
 
 ## Status
 
-`0.2.0-alpha.1` is a development milestone, not yet a signed customer installer. Do not represent it as an Anthropic product, certification, or official network score. Each end user authenticates to the unmodified official Claude Code flow with credentials they control.
+`0.2.0-alpha.2` is a development milestone, not yet a signed customer installer. Do not represent it as an Anthropic product, certification, or official network score. Each end user authenticates to the unmodified official Claude Code flow with credentials they control.
 
 ## License and attribution
 

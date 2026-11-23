@@ -1,6 +1,4 @@
-const fragment = new URLSearchParams(location.hash.slice(1));
-const token = fragment.get('token') || '';
-history.replaceState(null, '', location.pathname);
+const token = globalThis.HongAiDashboardSession?.resolveToken() || '';
 
 const byId = (id) => document.getElementById(id);
 
@@ -56,14 +54,23 @@ function renderAudit(payload) {
   }
 }
 
+function renderStatus(status) {
+  byId('expectedExitIp').textContent = status.expectedExit.ipv4;
+  byId('exitRegion').textContent = `${status.expectedExit.countryCode} · ${status.expectedExit.timeZone}`;
+  byId('observedExitIp').textContent = status.verification.observedExitIp || '—';
+  byId('verificationState').textContent = status.verification.state.replaceAll('_', ' ');
+  byId('controllerState').textContent = status.controller.state;
+  byId('controlPlaneState').textContent = status.controller.state;
+  byId('runtimeState').textContent = status.runtime.state.replaceAll('_', ' ');
+  byId('watchdog').textContent = status.policy.watchdog;
+  byId('scoreGate').textContent = `${status.scoreGate}+`;
+  byId('workspacePath').textContent = status.workspace;
+}
+
 async function load() {
   try {
     const status = await api('/api/status');
-    byId('exitIp').textContent = status.expectedExit.ipv4;
-    byId('exitRegion').textContent = `${status.expectedExit.countryCode} · ${status.expectedExit.timeZone}`;
-    byId('watchdog').textContent = status.protection.watchdog;
-    byId('scoreGate').textContent = `${status.scoreGate}+`;
-    byId('workspacePath').textContent = status.workspace;
+    renderStatus(status);
     renderAudit(await api('/api/audit'));
   } catch (error) {
     byId('preflightResult').textContent = `控制台认证失败：${error.message}`;
@@ -81,14 +88,17 @@ byId('runPreflight').addEventListener('click', async () => {
   try {
     const data = await api('/api/preflight', { method: 'POST' });
     result.className = 'result-box pass';
-    result.textContent = `通过：连续 ${data.probes.length} 次均为 ${data.expectedExitIp}，时区 ${data.currentTimeZone}。`;
+    result.textContent = `出口核验通过：连续 ${data.probes.length} 次均为 ${data.expectedExitIp}，时区 ${data.currentTimeZone}。此结果不代表 Claude 会话正在运行。`;
   } catch (error) {
     result.className = 'result-box fail';
     result.textContent = `未通过：${error.data?.failures?.join('；') || error.message}`;
   } finally {
     button.disabled = false;
     button.textContent = '执行出口核验';
-    try { renderAudit(await api('/api/audit')); } catch {}
+    try {
+      renderStatus(await api('/api/status'));
+      renderAudit(await api('/api/audit'));
+    } catch {}
   }
 });
 

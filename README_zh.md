@@ -2,7 +2,7 @@
 
 HONG AI Edge Cage 是面向官方 Claude Code CLI 的跨平台故障封闭隔离与交付控制器。
 
-本项目基于 [ClaudeCage](https://github.com/PACHAKUTlQ/ClaudeCage) 二次开发。上游 Linux 便携后端作为兼容模式保留；新的默认架构使用 Anthropic Sandbox Runtime 覆盖 Windows、macOS 与 Linux，并叠加客户授权的 Clash 链式代理和最终出口持续校验。
+本项目基于 [ClaudeCage](https://github.com/PACHAKUTlQ/ClaudeCage) 二次开发。当前受支持的 Alpha 交付路径面向 Windows 与 macOS，使用 Anthropic Sandbox Runtime、客户授权的 Clash 链式代理和最终出口持续校验；上游 Linux 便携后端仅作为实验兼容模式保留，不属于 HONG AI 客户验收路径。
 
 ## 当前 Alpha 能力
 
@@ -28,6 +28,6 @@ HONG AI Edge Cage 是面向官方 Claude Code CLI 的跨平台故障封闭隔离
 
 ## 当前状态
 
-`0.2.0-alpha.1` 是可测试的开发里程碑，还不是已经签名的客户安装包。部署前请阅读 [部署说明](docs/DEPLOYMENT.md)、[架构](docs/ARCHITECTURE.md)、[安全模型](docs/SECURITY-MODEL.md)、[隔离等级](docs/ISOLATION-TIERS.md)、[受控交付协议](docs/SECURE-DELIVERY.md)、[授权服务运维](docs/LICENSE-SERVICE.md) 和 [验收矩阵](docs/ACCEPTANCE-MATRIX.md)。
+`0.2.0-alpha.2` 是可测试的开发里程碑，还不是已经签名的客户安装包。部署前请阅读 [部署说明](docs/DEPLOYMENT.md)、[架构](docs/ARCHITECTURE.md)、[安全模型](docs/SECURITY-MODEL.md)、[隔离等级](docs/ISOLATION-TIERS.md)、[受控交付协议](docs/SECURE-DELIVERY.md)、[授权服务运维](docs/LICENSE-SERVICE.md) 和 [验收矩阵](docs/ACCEPTANCE-MATRIX.md)。
 
 本项目不是 Anthropic 产品、认证或官方评分。每位终端用户通过未修改的官方 Claude Code 流程使用自己控制的账号完成认证。

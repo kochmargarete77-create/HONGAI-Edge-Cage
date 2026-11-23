@@ -23,8 +23,9 @@ export interface InstallIdentity {
 }
 
 export interface ContentKeyEnvelope {
-  version: 1;
+  version: 2;
   artifactId: string;
+  artifactManifestSha256: string;
   installId: string;
   issuedAt: string;
   expiresAt: string;
@@ -34,6 +35,14 @@ export interface ContentKeyEnvelope {
   ciphertext: string;
   authTag: string;
   signature: string;
+}
+
+export interface ArtifactManifest {
+  version: 1;
+  artifactId: string;
+  downloadUrl: string;
+  ciphertextSha256: string;
+  plaintextSha256: string;
 }
 
 type UnsignedEnvelope = Omit<ContentKeyEnvelope, 'signature'>;
@@ -59,6 +68,37 @@ function envelopeBytes(value: UnsignedEnvelope): Buffer {
   return Buffer.from(JSON.stringify(value), 'utf8');
 }
 
+function artifactManifestBytes(value: ArtifactManifest): Buffer {
+  return Buffer.from(JSON.stringify({
+    version: value.version,
+    artifactId: value.artifactId,
+    downloadUrl: value.downloadUrl,
+    ciphertextSha256: value.ciphertextSha256,
+    plaintextSha256: value.plaintextSha256
+  }), 'utf8');
+}
+
+export function hashArtifactManifest(value: ArtifactManifest): string {
+  return createHash('sha256').update(artifactManifestBytes(value)).digest('hex');
+}
+
+export function signArtifactManifest(value: ArtifactManifest, signingPrivateKeyPem: string): string {
+  return sign(null, artifactManifestBytes(value), createPrivateKey(signingPrivateKeyPem)).toString('base64url');
+}
+
+export function verifyArtifactManifestSignature(
+  value: ArtifactManifest,
+  signature: string,
+  signingPublicKeyPem: string
+): boolean {
+  return verify(
+    null,
+    artifactManifestBytes(value),
+    createPublicKey(signingPublicKeyPem),
+    Buffer.from(signature, 'base64url')
+  );
+}
+
 function deriveEnvelopeKey(sharedSecret: Buffer, salt: Buffer): Buffer {
   return Buffer.from(hkdfSync('sha256', sharedSecret, salt, envelopeInfo, 32));
 }
@@ -66,6 +106,7 @@ function deriveEnvelopeKey(sharedSecret: Buffer, salt: Buffer): Buffer {
 export function wrapContentKeyForInstall(args: {
   contentKey: Buffer;
   artifactId: string;
+  artifactManifestSha256: string;
   installId: string;
   clientPublicKeyPem: string;
   signingPrivateKeyPem: string;
@@ -74,37 +115,50 @@ export function wrapContentKeyForInstall(args: {
   if (args.contentKey.length !== 32) {
     throw new Error('Content key must be exactly 32 bytes.');
   }
+  if (!/^[a-f0-9]{64}$/.test(args.artifactManifestSha256)) {
+    throw new Error('Artifact manifest SHA-256 is invalid.');
+  }
   const clientPublicKey = createPublicKey(args.clientPublicKeyPem);
   const { publicKey: ephemeralPublicKey, privateKey: ephemeralPrivateKey } = generateKeyPairSync('x25519');
   const sharedSecret = diffieHellman({ privateKey: ephemeralPrivateKey, publicKey: clientPublicKey });
   const salt = randomBytes(32);
   const wrappingKey = deriveEnvelopeKey(sharedSecret, salt);
-  const iv = randomBytes(12);
-  const issuedAt = new Date();
-  const expiresAt = new Date(issuedAt.getTime() + (args.ttlSeconds ?? 300) * 1000);
-  const metadata = Buffer.from(`${args.artifactId}\0${args.installId}\0${expiresAt.toISOString()}`, 'utf8');
-  const cipher = createCipheriv('aes-256-gcm', wrappingKey, iv);
-  cipher.setAAD(metadata);
-  const ciphertext = Buffer.concat([cipher.update(args.contentKey), cipher.final()]);
-  const unsigned: UnsignedEnvelope = {
-    version: 1,
-    artifactId: args.artifactId,
-    installId: args.installId,
-    issuedAt: issuedAt.toISOString(),
-    expiresAt: expiresAt.toISOString(),
-    ephemeralPublicKeyPem: ephemeralPublicKey.export({ format: 'pem', type: 'spki' }).toString(),
-    salt: salt.toString('base64url'),
-    iv: iv.toString('base64url'),
-    ciphertext: ciphertext.toString('base64url'),
-    authTag: cipher.getAuthTag().toString('base64url')
-  };
-  const signature = sign(null, envelopeBytes(unsigned), createPrivateKey(args.signingPrivateKeyPem));
-  return { ...unsigned, signature: signature.toString('base64url') };
+  try {
+    const iv = randomBytes(12);
+    const issuedAt = new Date();
+    const expiresAt = new Date(issuedAt.getTime() + (args.ttlSeconds ?? 300) * 1000);
+    const metadata = Buffer.from(
+      `${args.artifactId}\0${args.artifactManifestSha256}\0${args.installId}\0${expiresAt.toISOString()}`,
+      'utf8'
+    );
+    const cipher = createCipheriv('aes-256-gcm', wrappingKey, iv);
+    cipher.setAAD(metadata);
+    const ciphertext = Buffer.concat([cipher.update(args.contentKey), cipher.final()]);
+    const unsigned: UnsignedEnvelope = {
+      version: 2,
+      artifactId: args.artifactId,
+      artifactManifestSha256: args.artifactManifestSha256,
+      installId: args.installId,
+      issuedAt: issuedAt.toISOString(),
+      expiresAt: expiresAt.toISOString(),
+      ephemeralPublicKeyPem: ephemeralPublicKey.export({ format: 'pem', type: 'spki' }).toString(),
+      salt: salt.toString('base64url'),
+      iv: iv.toString('base64url'),
+      ciphertext: ciphertext.toString('base64url'),
+      authTag: cipher.getAuthTag().toString('base64url')
+    };
+    const signature = sign(null, envelopeBytes(unsigned), createPrivateKey(args.signingPrivateKeyPem));
+    return { ...unsigned, signature: signature.toString('base64url') };
+  } finally {
+    sharedSecret.fill(0);
+    wrappingKey.fill(0);
+  }
 }
 
 export function unwrapContentKey(args: {
   envelope: ContentKeyEnvelope;
   expectedArtifactId: string;
+  expectedArtifactManifestSha256: string;
   expectedInstallId: string;
   clientPrivateKeyPem: string;
   signingPublicKeyPem: string;
@@ -122,6 +176,7 @@ export function unwrapContentKey(args: {
   }
   if (
     args.envelope.artifactId !== args.expectedArtifactId ||
+    args.envelope.artifactManifestSha256 !== args.expectedArtifactManifestSha256 ||
     args.envelope.installId !== args.expectedInstallId
   ) {
     throw new Error('Content-key envelope is bound to a different artifact or installation.');
@@ -134,21 +189,26 @@ export function unwrapContentKey(args: {
     publicKey: createPublicKey(args.envelope.ephemeralPublicKeyPem)
   });
   const wrappingKey = deriveEnvelopeKey(sharedSecret, Buffer.from(args.envelope.salt, 'base64url'));
-  const metadata = Buffer.from(
-    `${args.envelope.artifactId}\0${args.envelope.installId}\0${args.envelope.expiresAt}`,
-    'utf8'
-  );
-  const decipher = createDecipheriv(
-    'aes-256-gcm',
-    wrappingKey,
-    Buffer.from(args.envelope.iv, 'base64url')
-  );
-  decipher.setAAD(metadata);
-  decipher.setAuthTag(Buffer.from(args.envelope.authTag, 'base64url'));
-  return Buffer.concat([
-    decipher.update(Buffer.from(args.envelope.ciphertext, 'base64url')),
-    decipher.final()
-  ]);
+  try {
+    const metadata = Buffer.from(
+      `${args.envelope.artifactId}\0${args.envelope.artifactManifestSha256}\0${args.envelope.installId}\0${args.envelope.expiresAt}`,
+      'utf8'
+    );
+    const decipher = createDecipheriv(
+      'aes-256-gcm',
+      wrappingKey,
+      Buffer.from(args.envelope.iv, 'base64url')
+    );
+    decipher.setAAD(metadata);
+    decipher.setAuthTag(Buffer.from(args.envelope.authTag, 'base64url'));
+    return Buffer.concat([
+      decipher.update(Buffer.from(args.envelope.ciphertext, 'base64url')),
+      decipher.final()
+    ]);
+  } finally {
+    sharedSecret.fill(0);
+    wrappingKey.fill(0);
+  }
 }
 
 export function encryptArtifact(plaintext: Buffer, contentKey: Buffer): Buffer {

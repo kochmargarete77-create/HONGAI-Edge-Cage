@@ -1,6 +1,17 @@
 import assert from 'node:assert/strict';
+import { randomBytes } from 'node:crypto';
+import { mkdir, mkdtemp, rm, stat } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import test from 'node:test';
-import { assertApprovedReleaseUrl } from '../src/delivery-client.js';
+import { assertApprovedReleaseUrl, retrieveArtifact } from '../src/delivery-client.js';
+import {
+  encryptArtifact,
+  generateSigningKeyPair,
+  hashArtifactManifest,
+  sha256,
+  signArtifactManifest,
+  wrapContentKeyForInstall
+} from '../src/license-protocol.js';
 
 test('delivery client accepts only HTTPS GitHub release hosts', () => {
   assert.equal(
@@ -13,4 +24,87 @@ test('delivery client accepts only HTTPS GitHub release hosts', () => {
   );
   assert.throws(() => assertApprovedReleaseUrl('http://github.com/example/project/bundle.enc'));
   assert.throws(() => assertApprovedReleaseUrl('https://example.com/bundle.enc'));
+});
+
+test('failed finalization removes the decrypted archive and records failure', async () => {
+  const tempBase = resolve(process.cwd(), '.test-tmp');
+  await mkdir(tempBase, { recursive: true });
+  const root = await mkdtemp(resolve(tempBase, 'delivery-cleanup-'));
+  const outputPath = resolve(root, 'bundle.tgz');
+  const signing = generateSigningKeyPair();
+  const contentKey = randomBytes(32);
+  const plaintext = Buffer.from('verified customer delivery payload');
+  const encrypted = encryptArtifact(plaintext, contentKey);
+  const downloadUrl = 'https://github.com/kochmargarete77-create/HONGAI-Edge-Cage/releases/download/test/bundle.enc';
+  const manifest = {
+    version: 1 as const,
+    artifactId: 'delivery-cleanup-test',
+    downloadUrl,
+    ciphertextSha256: sha256(encrypted),
+    plaintextSha256: sha256(plaintext)
+  };
+  const receiptStatuses: string[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = input instanceof Request ? input.url : String(input);
+    if (url.endsWith('/v1/activate')) {
+      const request = JSON.parse(String(init?.body)) as {
+        installId: string;
+        clientPublicKeyPem: string;
+      };
+      const manifestHash = hashArtifactManifest(manifest);
+      return Response.json({
+        ok: true,
+        activationId: 'activation-cleanup-test',
+        receiptToken: 'receipt-cleanup-test',
+        artifact: {
+          id: manifest.artifactId,
+          downloadUrl,
+          ciphertextSha256: manifest.ciphertextSha256,
+          plaintextSha256: manifest.plaintextSha256,
+          manifestSignature: signArtifactManifest(manifest, signing.privateKeyPem)
+        },
+        envelope: wrapContentKeyForInstall({
+          contentKey,
+          artifactId: manifest.artifactId,
+          artifactManifestSha256: manifestHash,
+          installId: request.installId,
+          clientPublicKeyPem: request.clientPublicKeyPem,
+          signingPrivateKeyPem: signing.privateKeyPem
+        })
+      });
+    }
+    if (url === downloadUrl) {
+      const response = new Response(Uint8Array.from(encrypted), {
+        status: 200,
+        headers: { 'Content-Type': 'application/octet-stream' }
+      });
+      Object.defineProperty(response, 'url', { value: downloadUrl });
+      return response;
+    }
+    if (url.endsWith('/v1/receipt')) {
+      const request = JSON.parse(String(init?.body)) as { status: string };
+      receiptStatuses.push(request.status);
+      return Response.json({ ok: true });
+    }
+    throw new Error(`Unexpected test URL: ${url}`);
+  }) as typeof fetch;
+  try {
+    await assert.rejects(retrieveArtifact({
+      serviceUrl: 'http://127.0.0.1:8787/',
+      artifactId: manifest.artifactId,
+      licenseKey: 'test-license',
+      oneTimeToken: 'test-token',
+      signingPublicKeyPem: signing.publicKeyPem,
+      outputPath,
+      finalize: async () => { throw new Error('forced finalize failure'); }
+    }), /forced finalize failure/);
+    await assert.rejects(stat(outputPath), (error: NodeJS.ErrnoException) => error.code === 'ENOENT');
+    assert.deepEqual(receiptStatuses, ['FAILED']);
+  } finally {
+    globalThis.fetch = originalFetch;
+    contentKey.fill(0);
+    plaintext.fill(0);
+    await rm(root, { recursive: true, force: true });
+  }
 });

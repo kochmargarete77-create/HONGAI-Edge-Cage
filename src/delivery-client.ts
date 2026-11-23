@@ -1,18 +1,22 @@
 import { randomBytes } from 'node:crypto';
-import { link, mkdir, rm, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { link, lstat, mkdir, open, rm, writeFile } from 'node:fs/promises';
+import { dirname, isAbsolute } from 'node:path';
 import { z } from 'zod';
 import {
   decryptArtifact,
   generateInstallIdentity,
+  hashArtifactManifest,
   sha256,
   unwrapContentKey,
+  verifyArtifactManifestSignature,
+  type ArtifactManifest,
   type ContentKeyEnvelope
 } from './license-protocol.js';
 
 const envelopeSchema = z.object({
-  version: z.literal(1),
+  version: z.literal(2),
   artifactId: z.string().min(1),
+  artifactManifestSha256: z.string().regex(/^[a-f0-9]{64}$/),
   installId: z.string().min(1),
   issuedAt: z.string().datetime(),
   expiresAt: z.string().datetime(),
@@ -32,7 +36,8 @@ const activationSchema = z.object({
     id: z.string().min(1),
     downloadUrl: z.string().url(),
     ciphertextSha256: z.string().regex(/^[a-f0-9]{64}$/),
-    plaintextSha256: z.string().regex(/^[a-f0-9]{64}$/)
+    plaintextSha256: z.string().regex(/^[a-f0-9]{64}$/),
+    manifestSignature: z.string().min(1)
   }).strict(),
   envelope: envelopeSchema
 }).strict();
@@ -141,13 +146,59 @@ async function sendReceipt(
   });
 }
 
+async function sendReceiptWithRetry(
+  serviceUrl: string,
+  activationId: string,
+  receiptToken: string,
+  status: 'DELIVERED' | 'INSTALLED' | 'FAILED'
+): Promise<void> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await sendReceipt(serviceUrl, activationId, receiptToken, status);
+      return;
+    } catch (error) {
+      lastError = error;
+      if (attempt < 2) {
+        await new Promise((resolveWait) => setTimeout(resolveWait, 250 * (2 ** attempt)));
+      }
+    }
+  }
+  throw lastError;
+}
+
+async function preflightOutputPath(outputPath: string): Promise<void> {
+  if (!isAbsolute(outputPath)) throw new Error('Artifact output path must be absolute.');
+  await mkdir(dirname(outputPath), { recursive: true });
+  try {
+    await lstat(outputPath);
+    throw new Error('Artifact output already exists; refusing to overwrite it.');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
+
+  const nonce = `${process.pid}.${randomBytes(6).toString('hex')}`;
+  const probePath = `${outputPath}.${nonce}.preflight`;
+  const probeLinkPath = `${probePath}.link`;
+  const handle = await open(probePath, 'wx', 0o600);
+  await handle.close();
+  try {
+    await link(probePath, probeLinkPath);
+  } finally {
+    await rm(probeLinkPath, { force: true });
+    await rm(probePath, { force: true });
+  }
+}
+
 export async function retrieveArtifact(options: RetrieveArtifactOptions): Promise<RetrieveArtifactResult> {
   const identity = generateInstallIdentity();
   let activationId: string | undefined;
   let receiptToken: string | undefined;
   let receiptCompleted = false;
+  let outputCreated = false;
   const temporaryPath = `${options.outputPath}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
   try {
+    await preflightOutputPath(options.outputPath);
     const activation = activationSchema.parse(await postJson(
       serviceEndpoint(options.serviceUrl, 'v1/activate'),
       {
@@ -163,6 +214,24 @@ export async function retrieveArtifact(options: RetrieveArtifactOptions): Promis
     if (activation.artifact.id !== options.artifactId) {
       throw new Error('License service returned a different artifact ID.');
     }
+    const artifactManifest: ArtifactManifest = {
+      version: 1,
+      artifactId: activation.artifact.id,
+      downloadUrl: activation.artifact.downloadUrl,
+      ciphertextSha256: activation.artifact.ciphertextSha256,
+      plaintextSha256: activation.artifact.plaintextSha256
+    };
+    if (!verifyArtifactManifestSignature(
+      artifactManifest,
+      activation.artifact.manifestSignature,
+      options.signingPublicKeyPem
+    )) {
+      throw new Error('Artifact manifest signature is invalid.');
+    }
+    const artifactManifestSha256 = hashArtifactManifest(artifactManifest);
+    if (activation.envelope.artifactManifestSha256 !== artifactManifestSha256) {
+      throw new Error('Content-key envelope is bound to a different artifact manifest.');
+    }
 
     const encrypted = await downloadArtifact(
       activation.artifact.downloadUrl,
@@ -175,6 +244,7 @@ export async function retrieveArtifact(options: RetrieveArtifactOptions): Promis
     const contentKey = unwrapContentKey({
       envelope: activation.envelope as ContentKeyEnvelope,
       expectedArtifactId: options.artifactId,
+      expectedArtifactManifestSha256: artifactManifestSha256,
       expectedInstallId: identity.installId,
       clientPrivateKeyPem: identity.privateKeyPem,
       signingPublicKeyPem: options.signingPublicKeyPem
@@ -193,9 +263,13 @@ export async function retrieveArtifact(options: RetrieveArtifactOptions): Promis
 
     const plaintextBytes = plaintext.length;
     await mkdir(dirname(options.outputPath), { recursive: true });
-    await writeFile(temporaryPath, plaintext, { mode: 0o600, flag: 'wx' });
-    plaintext.fill(0);
+    try {
+      await writeFile(temporaryPath, plaintext, { mode: 0o600, flag: 'wx' });
+    } finally {
+      plaintext.fill(0);
+    }
     await link(temporaryPath, options.outputPath);
+    outputCreated = true;
     await rm(temporaryPath, { force: true });
     const artifact: RetrievedArtifact = {
       activationId,
@@ -206,7 +280,7 @@ export async function retrieveArtifact(options: RetrieveArtifactOptions): Promis
     };
     if (options.finalize) await options.finalize(artifact);
     const status = options.finalize ? 'INSTALLED' : 'DELIVERED';
-    const receiptRecorded = await sendReceipt(
+    const receiptRecorded = await sendReceiptWithRetry(
       options.serviceUrl,
       activationId,
       receiptToken,
@@ -219,9 +293,17 @@ export async function retrieveArtifact(options: RetrieveArtifactOptions): Promis
       status
     };
   } catch (error) {
-    await rm(temporaryPath, { force: true }).catch(() => {});
+    const cleanupErrors: unknown[] = [];
+    await rm(temporaryPath, { force: true }).catch((cleanupError) => cleanupErrors.push(cleanupError));
+    if (outputCreated) {
+      await rm(options.outputPath, { force: true }).catch((cleanupError) => cleanupErrors.push(cleanupError));
+    }
     if (!receiptCompleted && activationId && receiptToken) {
-      await sendReceipt(options.serviceUrl, activationId, receiptToken, 'FAILED').catch(() => {});
+      await sendReceiptWithRetry(options.serviceUrl, activationId, receiptToken, 'FAILED')
+        .catch((receiptError) => cleanupErrors.push(receiptError));
+    }
+    if (cleanupErrors.length > 0) {
+      throw new AggregateError([error, ...cleanupErrors], 'Delivery failed and cleanup or failure receipt also failed.');
     }
     throw error;
   }

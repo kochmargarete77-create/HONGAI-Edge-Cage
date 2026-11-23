@@ -2,7 +2,11 @@
 
 import { readFile, rm } from 'node:fs/promises';
 import { retrieveArtifact } from '../../src/delivery-client.js';
-import { deploySourceArchive, type DeploymentResult } from '../../src/deployment.js';
+import {
+  deploySourceArchive,
+  preflightDeploymentTarget,
+  type DeploymentResult
+} from '../../src/deployment.js';
 import { absoluteArgument, argument, hiddenPrompt, required } from './terminal.js';
 
 async function main(): Promise<void> {
@@ -13,6 +17,7 @@ async function main(): Promise<void> {
   const installRoot = absoluteArgument('install-root');
   const configPath = absoluteArgument('config');
   const keepArchive = argument('keep-archive') === 'true';
+  await preflightDeploymentTarget({ installRoot, configPath });
   let archiveRetained = true;
   let deployment: DeploymentResult | undefined;
   let licenseKey = await hiddenPrompt('长期授权密钥（输入不可见）：');

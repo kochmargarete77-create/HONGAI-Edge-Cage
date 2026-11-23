@@ -60,7 +60,7 @@ test('license service consumes one-time tokens and records delivery in its audit
       '--artifact-id', 'integration-artifact',
       '--input', resolve(projectRoot, 'README.md'),
       '--output', resolve(dataRoot, 'integration-artifact.enc'),
-      '--download-url', 'https://github.com/example/project/releases/download/test/integration-artifact.enc'
+      '--download-url', 'https://github.com/kochmargarete77-create/HONGAI-Edge-Cage/releases/download/test/integration-artifact.enc'
     ]);
     const issued = JSON.parse(runAdmin([
       'issue',
@@ -68,7 +68,7 @@ test('license service consumes one-time tokens and records delivery in its audit
       '--customer-id', 'integration-customer',
       '--artifact-id', 'integration-artifact',
       '--ttl-minutes', '5'
-    ])) as { licenseKey: string; oneTimeToken: string };
+    ])) as { licenseId: string; licenseKey: string; oneTimeToken: string };
 
     child = spawn(process.execPath, [serverPath], {
       cwd: projectRoot,
@@ -115,6 +115,36 @@ test('license service consumes one-time tokens and records delivery in its audit
       })
     });
     assert.equal(receiptResponse.status, 200);
+    const duplicateReceiptResponse = await fetch(`${baseUrl}/v1/receipt`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        activationId: activation.activationId,
+        receiptToken: activation.receiptToken,
+        status: 'DELIVERED'
+      })
+    });
+    assert.equal(duplicateReceiptResponse.status, 200);
+    const installedReceiptResponse = await fetch(`${baseUrl}/v1/receipt`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        activationId: activation.activationId,
+        receiptToken: activation.receiptToken,
+        status: 'INSTALLED'
+      })
+    });
+    assert.equal(installedReceiptResponse.status, 200);
+    const terminalDowngradeResponse = await fetch(`${baseUrl}/v1/receipt`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        activationId: activation.activationId,
+        receiptToken: activation.receiptToken,
+        status: 'DELIVERED'
+      })
+    });
+    assert.equal(terminalDowngradeResponse.status, 403);
 
     const replayResponse = await fetch(`${baseUrl}/v1/activate`, {
       method: 'POST',
@@ -123,11 +153,43 @@ test('license service consumes one-time tokens and records delivery in its audit
     });
     assert.equal(replayResponse.status, 403);
 
+    const replacement = JSON.parse(runAdmin([
+      'issue-token',
+      '--data-root', dataRoot,
+      '--license-id', issued.licenseId,
+      '--ttl-minutes', '5'
+    ])) as { oneTimeToken: string };
+    const revoked = JSON.parse(runAdmin([
+      'revoke-license',
+      '--data-root', dataRoot,
+      '--license-id', issued.licenseId
+    ])) as { ok: boolean; revokedTokens: number };
+    assert.equal(revoked.ok, true);
+    assert.equal(revoked.revokedTokens, 1);
+    const revokedResponse = await fetch(`${baseUrl}/v1/activate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...activationBody, oneTimeToken: replacement.oneTimeToken })
+    });
+    assert.equal(revokedResponse.status, 403);
+
+    const checkpointPath = resolve(dataRoot, 'audit-checkpoint.json');
+    runAdmin([
+      'checkpoint',
+      '--data-root', dataRoot,
+      '--output', checkpointPath
+    ]);
+    runAdmin([
+      'verify-checkpoint',
+      '--data-root', dataRoot,
+      '--checkpoint', checkpointPath
+    ]);
+
     const database = JSON.parse(
       await readFile(resolve(dataRoot, 'database.json'), 'utf8')
     ) as LicenseDatabase;
     assert.equal(database.activations.length, 1);
-    assert.equal(database.activations[0]?.result, 'DELIVERED');
+    assert.equal(database.activations[0]?.result, 'INSTALLED');
     assert.equal(verifyDatabaseEvents(database.events), true);
   } finally {
     if (child && child.exitCode === null) {
