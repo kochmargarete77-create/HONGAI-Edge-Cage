@@ -86,6 +86,9 @@ try{
     Set-Setting $box 'NetworkAccess' ("*,Allow;Port=$($broker.Port);Address=127.0.0.1;Protocol=TCP") -Append
     Set-Setting $box 'FileRootPath' (Join-Path $DataRoot 'Box')
     Set-Setting $box 'DropAdminRights' 'y'
+    Set-Setting $box 'ProcessNumberLimit' '64'
+    Set-Setting $box 'TotalMemoryLimit' '2147483648'
+    Set-Setting $box 'ProcessMemoryLimit' '1073741824'
     Set-Setting $box 'BlockNetworkFiles' 'y'
     Set-Setting $box 'OpenFilePath' ($Workspace+'\*')
     Set-Setting $box 'OpenFilePath' ((Join-Path $DataRoot 'transport')+'\*') -Append
