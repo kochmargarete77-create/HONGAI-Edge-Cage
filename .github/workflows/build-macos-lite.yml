@@ -155,7 +155,7 @@ jobs:
           set -euo pipefail
           app='${{ steps.app.outputs.app }}'
           stage="$RUNNER_TEMP/dmg-stage"
-          output="$RUNNER_TEMP/HONG-AI-CAGE-0.2.1-macOS-${{ matrix.artifact_arch }}.dmg"
+          output="$RUNNER_TEMP/HONG-AI-CAGE-0.2.2-macOS-${{ matrix.artifact_arch }}.dmg"
           mkdir -p "$stage"
           /usr/bin/ditto "$app" "$stage/HONG AI CAGE.app"
           ln -s /Applications "$stage/Applications"
@@ -171,7 +171,7 @@ jobs:
       - name: Upload tested macOS customer package
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          name: HONG-AI-CAGE-macOS-${{ matrix.artifact_arch }}-v0.2.1
+          name: HONG-AI-CAGE-macOS-${{ matrix.artifact_arch }}-v0.2.2
           path: |
             ${{ steps.dmg.outputs.path }}
             ${{ steps.dmg.outputs.path }}.sha256.txt
@@ -179,4 +179,5 @@ jobs:
             ${{ runner.temp }}/hongai-cage-smoke.log
           if-no-files-found: error
           retention-days: 7
+
 
