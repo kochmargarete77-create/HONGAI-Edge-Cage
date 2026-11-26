@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param([switch]$ConfirmUninstall)
 $ErrorActionPreference='Stop'
+if($PSVersionTable.PSEdition -eq 'Desktop'){$env:PSModulePath=(Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\Modules')+';'+(Join-Path $env:ProgramFiles 'WindowsPowerShell\Modules')}
 if(-not $ConfirmUninstall){throw '卸载请使用 -ConfirmUninstall；将保留隔离数据与恢复副本。'}
 $root=$PSScriptRoot
 $receipt=Get-Content -LiteralPath (Join-Path $root 'installation.json') -Raw -Encoding UTF8|ConvertFrom-Json

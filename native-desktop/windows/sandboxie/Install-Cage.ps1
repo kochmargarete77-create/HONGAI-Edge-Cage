@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param([string]$Destination,[switch]$NoShortcut,[string]$ResultPath,[string]$OriginalUserSid,[string]$OriginalDesktop)
 $ErrorActionPreference='Stop'
+if($PSVersionTable.PSEdition -eq 'Desktop'){$env:PSModulePath=(Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\Modules')+';'+(Join-Path $env:ProgramFiles 'WindowsPowerShell\Modules')}
 $report=[ordered]@{installed=$false;hostNetworkSettingsChanged=$false;rebootPerformed=$false;customerAccepted=$false}
 try {
     if(-not [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'ADMIN_REQUIRED_FOR_SIGNED_ISOLATION_COMPONENT'}

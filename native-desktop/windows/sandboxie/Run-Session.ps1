@@ -10,6 +10,7 @@ param(
     [string]$OfficialExecutableOverride
 )
 $ErrorActionPreference='Stop'
+if($PSVersionTable.PSEdition -eq 'Desktop'){$env:PSModulePath=(Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\Modules')+';'+(Join-Path $env:ProgramFiles 'WindowsPowerShell\Modules')}
 $safeDataRoot=$false
 trap {
     if($safeDataRoot){[IO.File]::WriteAllText((Join-Path $DataRoot 'session-status.json'),([ordered]@{phase='BLOCKED';error=$_.Exception.Message}|ConvertTo-Json),[Text.UTF8Encoding]::new($false))}

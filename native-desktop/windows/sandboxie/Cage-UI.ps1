@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param([switch]$UISmokeTest)
 $ErrorActionPreference='Stop'
+if($PSVersionTable.PSEdition -eq 'Desktop'){$env:PSModulePath=(Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\Modules')+';'+(Join-Path $env:ProgramFiles 'WindowsPowerShell\Modules')}
 Add-Type -AssemblyName System.Windows.Forms,System.Drawing
 [Windows.Forms.Application]::EnableVisualStyles()
 $runtime=$PSScriptRoot
