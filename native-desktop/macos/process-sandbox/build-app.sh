@@ -29,7 +29,7 @@ PLIST
 /usr/bin/codesign --force --sign - "$app/Contents/Helpers/CageSession"
 /usr/bin/codesign --force --sign - "$app"
 /usr/bin/codesign --verify --strict "$app"
-/usr/bin/lipo -verify_arch arm64 x86_64 "$app/Contents/MacOS/HongAICage"
+/usr/bin/lipo "$app/Contents/MacOS/HongAICage" -verify_arch arm64 x86_64
 "$app/Contents/MacOS/HongAICage" --verify-policy > "$destination/runtime-policy.sb"
 "$app/Contents/MacOS/HongAICage" --broker-self-test
 # Verify that the generated production profile is accepted by the real macOS sandbox parser.
