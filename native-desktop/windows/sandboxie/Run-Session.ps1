@@ -40,7 +40,9 @@ foreach($protected in @($DataRoot,$runtime,$engine)){$protected=$protected.TrimE
 $start=Join-Path $engine 'Start.exe';$ini=Join-Path $engine 'SbieIni.exe'
 foreach($file in @($start,$ini,(Join-Path $engine 'SbieSvc.exe'))){if((Get-AuthenticodeSignature -LiteralPath $file).Status -ne 'Valid'){throw 'SIGNED_ENGINE_COMPONENT_VERIFICATION_FAILED'}}
 function Invoke-Engine([string]$File,[string[]]$Arguments,[int]$Timeout=12000){
-    $quoted=@($Arguments|ForEach-Object {if($_ -match '["\r\n]'){throw 'UNSAFE_ENGINE_ARGUMENT'};'"'+($_ -replace '(\\+)$','$1$1')+'"'}) -join ' '
+    # Start.exe parses switches directly from GetCommandLine: quoting /box or
+    # /silent makes them a child program name instead of an engine switch.
+    $quoted=@($Arguments|ForEach-Object {if($_ -match '["\r\n]'){throw 'UNSAFE_ENGINE_ARGUMENT'};if($_.Length -gt 0 -and $_ -notmatch '\s'){$_}else{'"'+($_ -replace '(\\+)$','$1$1')+'"'}}) -join ' '
     $info=[Diagnostics.ProcessStartInfo]::new($File,$quoted);$info.UseShellExecute=$false;$info.CreateNoWindow=$true;$info.RedirectStandardOutput=$true;$info.RedirectStandardError=$true
     $worker=[Diagnostics.Process]::Start($info)
     try{$stdout=$worker.StandardOutput.ReadToEndAsync();$stderr=$worker.StandardError.ReadToEndAsync();if(-not $worker.WaitForExit($Timeout)){$worker.Kill();throw ('ENGINE_COMMAND_TIMEOUT '+[IO.Path]::GetFileName($File)+' '+($Arguments -join ' '))};$output=$stdout.GetAwaiter().GetResult();$null=$stderr.GetAwaiter().GetResult();if($worker.ExitCode -ne 0){throw ('ENGINE_COMMAND_FAILED '+$worker.ExitCode+' '+[IO.Path]::GetFileName($File)+' '+($Arguments -join ' '))};return $output.Trim()}finally{$worker.Dispose()}
