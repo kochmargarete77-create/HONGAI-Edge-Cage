@@ -22,12 +22,12 @@ final class SessionBroker {
         let server=try NWListener(using:parameters)
         let ready=DispatchSemaphore(value:0)
         var failure:NWError?
-        server.stateUpdateHandler={ state in
-            switch state {case .ready: self.port=server.port!.rawValue;ready.signal()
+        server.stateUpdateHandler={ [weak self,weak server] state in
+            switch state {case .ready: guard let server=server else {return};self?.port=server.port!.rawValue;ready.signal()
             case .failed(let error): failure=error;ready.signal()
             default: break}
         }
-        server.newConnectionHandler={ [weak self] incoming in self?.accept(incoming) }
+        server.newConnectionHandler={ [weak self] incoming in guard let owner=self else {incoming.cancel();return};owner.accept(incoming) }
         listener=server; server.start(queue:queue)
         guard ready.wait(timeout:.now()+5) == .success, failure == nil, port > 1023 else {server.cancel();throw CageFailure("无法建立会话专用代理入口。")}
         refresh()
@@ -37,7 +37,7 @@ final class SessionBroker {
         guard admitted else {incoming.cancel();return}
         let outgoing=NWConnection(host:"127.0.0.1",port:NWEndpoint.Port(rawValue:upstream)!,using:.tcp)
         let key=UUID();lock.lock();pairs[key]=(incoming,outgoing);lock.unlock()
-        func close(){self.lock.lock();let pair=self.pairs.removeValue(forKey:key);self.lock.unlock();pair?.0.cancel();pair?.1.cancel()}
+        func close(){self.lock.lock();let pair=self.pairs.removeValue(forKey:key);self.lock.unlock();pair?.0.stateUpdateHandler=nil;pair?.1.stateUpdateHandler=nil;pair?.0.cancel();pair?.1.cancel()}
         func pump(_ source:NWConnection,_ destination:NWConnection){
             source.receive(minimumIncompleteLength:1,maximumLength:65_536){data,_,complete,error in
                 self.lock.lock();let allowed = !self.stopped && Date() < self.validUntil;self.lock.unlock()
@@ -56,7 +56,7 @@ final class SessionBroker {
     }
     func stop(){
         lock.lock();stopped=true;validUntil = .distantPast;let active=Array(pairs.values);pairs.removeAll();lock.unlock()
-        listener?.cancel();for pair in active {pair.0.cancel();pair.1.cancel()}
+        listener?.cancel();for pair in active {pair.0.stateUpdateHandler=nil;pair.1.stateUpdateHandler=nil;pair.0.cancel();pair.1.cancel()}
     }
     deinit {stop()}
 }
@@ -171,11 +171,13 @@ enum CageRuntime {
                     home.appendingPathComponent(".config/clash").path,
                     home.appendingPathComponent(".config/mihomo").path,
                     "/Library/Preferences/SystemConfiguration", "/private/etc/resolv.conf", "/private/etc/hosts"]
-        for path in deny where path.contains("\"") || path.contains("\\") || path.contains("\n") || path.contains("\r") { throw CageFailure("路径包含不支持的字符。") }
+        let wrapper=Bundle.main.bundleURL.path
+        for path in deny+[wrapper] where path.contains("\"") || path.contains("\\") || path.contains("\n") || path.contains("\r") { throw CageFailure("路径包含不支持的字符。") }
         var result = "(version 1)\n(allow default)\n(deny network*)\n(allow network-outbound (remote tcp \"localhost:\(port)\"))\n(deny appleevent-send)\n"
         result += "(deny mach-lookup (global-name \"com.apple.nsurlsessiond\") (global-name \"com.apple.lsd.open\"))\n"
         for path in deny.dropFirst() { result += "(deny file-read* file-write* (subpath \"\(path)\"))\n" }
         result += "(deny file-write* (subpath \"\(application.path)\"))\n"
+        result += "(deny file-write* (subpath \"\(wrapper)\"))\n"
         return result
     }
 }
@@ -209,6 +211,18 @@ final class CageController: NSObject, NSApplicationDelegate {
         content.translatesAutoresizingMaskIntoConstraints = false; window.contentView!.addSubview(content)
         NSLayoutConstraint.activate([content.leadingAnchor.constraint(equalTo:window.contentView!.leadingAnchor),content.trailingAnchor.constraint(equalTo:window.contentView!.trailingAnchor),content.topAnchor.constraint(equalTo:window.contentView!.topAnchor)])
         window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps:true)
+        if CommandLine.arguments.contains("--ui-smoke-test") {
+            DispatchQueue.main.asyncAfter(deadline:.now()+2) {
+                guard self.window.isVisible,self.window.contentView!.subviews.count > 0 else {exit(1)}
+                if let path=ProcessInfo.processInfo.environment["HONGAI_UI_SNAPSHOT"],let view=self.window.contentView,
+                   let bitmap=view.bitmapImageRepForCachingDisplay(in:view.bounds) {
+                    view.cacheDisplay(in:view.bounds,to:bitmap)
+                    if let data=bitmap.representation(using:.png,properties:[:]) {try? data.write(to:URL(fileURLWithPath:path))}
+                }
+                print("PASS installed native UI opens without account login or network configuration changes")
+                NSApp.terminate(nil)
+            }
+        }
     }
     @objc func chooseHandoff() { let panel=NSOpenPanel(); panel.canChooseDirectories=false; panel.allowsMultipleSelection=false; if panel.runModal() == .OK { handoffURL=panel.url; fileLabel.stringValue=panel.url!.lastPathComponent } }
     @objc func chooseWorkspace() { let panel=NSOpenPanel(); panel.canChooseDirectories=true; panel.canChooseFiles=false; if panel.runModal() == .OK { workspace=panel.url?.resolvingSymlinksInPath(); workspaceLabel.stringValue=workspace!.path } }
@@ -226,6 +240,7 @@ final class CageController: NSObject, NSApplicationDelegate {
                 for _ in 0..<3 { try CageRuntime.verifyExit(h) }
                 let home=FileManager.default.homeDirectoryForCurrentUser
                 let root=home.appendingPathComponent("Library/Application Support/HONGAI-CAGE-Desktop")
+                guard root.resolvingSymlinksInPath() == root.standardizedFileURL else {throw CageFailure("隔离目录包含链接，请由维护人员检查。")}
                 try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true,attributes:[.posixPermissions:0o700])
                 let ownProfile=root.appendingPathComponent("profile"), temp=root.appendingPathComponent("temp")
                 for item in [ownProfile,temp] { try FileManager.default.createDirectory(at:item,withIntermediateDirectories:true,attributes:[.posixPermissions:0o700]) }
