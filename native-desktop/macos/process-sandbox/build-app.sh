@@ -21,7 +21,7 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 <key>CFBundleExecutable</key><string>HongAICage</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>0.3.0</string>
-<key>CFBundleVersion</key><string>6</string>
+<key>CFBundleVersion</key><string>7</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
@@ -32,6 +32,7 @@ PLIST
 /usr/bin/lipo "$app/Contents/MacOS/HongAICage" -verify_arch arm64 x86_64
 "$app/Contents/MacOS/HongAICage" --verify-policy > "$destination/runtime-policy.sb"
 "$app/Contents/MacOS/HongAICage" --broker-self-test
+"$app/Contents/MacOS/HongAICage" --storage-self-test
 # Verify that the generated production profile is accepted by the real macOS sandbox parser.
 /usr/bin/sandbox-exec -f "$destination/runtime-policy.sb" /usr/bin/true
 package_root="$destination/package-root"

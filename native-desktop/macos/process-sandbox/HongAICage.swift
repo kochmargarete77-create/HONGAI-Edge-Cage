@@ -218,6 +218,8 @@ enum CageRuntime {
                     home.appendingPathComponent("Library/Application Support/Clash Verge").path,
                     home.appendingPathComponent("Library/Application Support/io.github.clash-verge-rev.clash-verge-rev").path,
                     home.appendingPathComponent(".claude").path,
+                    home.appendingPathComponent("Library/Application Support/Google/Chrome").path,
+                    home.appendingPathComponent("Library/Application Support/Microsoft Edge").path,
                     home.appendingPathComponent(".config/clash").path,
                     home.appendingPathComponent(".config/mihomo").path,
                     "/Library/Preferences/SystemConfiguration", "/private/etc/resolv.conf", "/private/etc/hosts"]
@@ -235,6 +237,38 @@ enum CageRuntime {
     }
 }
 
+func checkStorageBudget(_ root:URL,maximumBytes:Int64=3*1024*1024*1024,maximumEntries:Int=30000) throws {
+    let keys:Set<URLResourceKey>=[.isSymbolicLinkKey,.isRegularFileKey,.fileSizeKey]
+    var failed=false
+    guard let iterator=FileManager.default.enumerator(at:root,includingPropertiesForKeys:Array(keys),options:[],errorHandler:{_,_ in failed=true;return false}) else {throw CageFailure("隔离存储无法核验，会话已停止。")}
+    var entries=0,bytes:Int64=0
+    for case let file as URL in iterator {
+        entries+=1
+        if entries > maximumEntries {throw CageFailure("隔离存储条目超过预算，请先整理本工具的数据。")}
+        let values=try file.resourceValues(forKeys:keys)
+        if values.isSymbolicLink == true {iterator.skipDescendants();continue}
+        if values.isRegularFile == true {bytes+=Int64(values.fileSize ?? 0)}
+        if bytes > maximumBytes {throw CageFailure("隔离数据超过 3 GB 软容量预算，会话已停止；客户文件未删除。")}
+    }
+    if failed {throw CageFailure("隔离存储检查未完成，会话已停止。")}
+}
+
+func storageSelfTest() throws {
+    let root=FileManager.default.temporaryDirectory.appendingPathComponent("hongai-storage-"+UUID().uuidString)
+    try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true)
+    defer {try? FileManager.default.removeItem(at:root)}
+    try Data(repeating:0,count:128).write(to:root.appendingPathComponent("fixture"))
+    try FileManager.default.createSymbolicLink(at:root.appendingPathComponent("own-cycle"),withDestinationURL:root)
+    try checkStorageBudget(root,maximumBytes:256,maximumEntries:5)
+    var denied=false
+    do {try checkStorageBudget(root,maximumBytes:64,maximumEntries:5)} catch {denied=true}
+    guard denied else {throw CageFailure("STORAGE_BYTE_LIMIT_NOT_ENFORCED")}
+    denied=false
+    do {try checkStorageBudget(root,maximumBytes:256,maximumEntries:1)} catch {denied=true}
+    guard denied else {throw CageFailure("STORAGE_ENTRY_LIMIT_NOT_ENFORCED")}
+    print("PASS storage budget: bounded traversal, byte limit, entry limit, no symlink traversal")
+}
+
 final class CageController: NSObject, NSApplicationDelegate {
     var window: NSWindow!
     let status = NSTextField(wrappingLabelWithString:"导入第一步交接文件，选择工作文件夹，再启动官方桌面版。")
@@ -243,7 +277,7 @@ final class CageController: NSObject, NSApplicationDelegate {
     let start = NSButton(title:"启动 Claude 桌面版", target:nil, action:nil)
     var handoffURL: URL?, workspace: URL?, process: Process?, timer: Timer?
     var broker: SessionBroker?
-    var busy = false, generation = UUID()
+    var busy = false, generation = UUID(), nextStorageCheck:UInt64=0
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         window = NSWindow(contentRect:NSRect(x:0,y:0,width:650,height:500), styleMask:[.titled,.closable,.miniaturizable], backing:.buffered, defer:false)
@@ -300,7 +334,7 @@ final class CageController: NSObject, NSApplicationDelegate {
                 guard NSRunningApplication.runningApplications(withBundleIdentifier:"com.anthropic.claudefordesktop").isEmpty else { throw CageFailure("请先退出正在运行的 Claude。") }
                 let home=FileManager.default.homeDirectoryForCurrentUser
                 let root=home.appendingPathComponent("Library/Application Support/HONGAI-CAGE-Desktop")
-                guard !workspace.path.hasPrefix(root.path+"/"),!root.path.hasPrefix(workspace.path+"/"),workspace != root else {throw CageFailure("工作文件夹不能与隔离配置目录重叠。")}
+                guard !workspace.path.hasPrefix(root.path+"/"),!root.path.hasPrefix(workspace.path+"/"),workspace != root,!home.path.hasPrefix(workspace.path+"/") else {throw CageFailure("请选择独立项目目录，不能选择系统、用户根目录或隔离配置目录。")}
                 let enrolled=root.appendingPathComponent("enrolled-handoff.json")
                 let admissionData=try Data(contentsOf:file)
                 let h=try Handoff.decode(admissionData,requireFresh:file.standardizedFileURL != enrolled.standardizedFileURL), app=try CageRuntime.officialApp()
@@ -314,14 +348,14 @@ final class CageController: NSObject, NSApplicationDelegate {
                 let policy=root.appendingPathComponent("boundary.sb")
                 try CageRuntime.profile(port:Int(broker.port),application:app,home:home).write(to:policy,atomically:true,encoding:.utf8)
                 let p=Process(); p.executableURL=Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/CageSession")
-                p.arguments=["/usr/bin/sandbox-exec","-f",policy.path,app.appendingPathComponent("Contents/MacOS/Claude").path,"--user-data-dir=\(ownProfile.path)","--proxy-server=\(sessionProxy)","--proxy-bypass-list=<-loopback>","--disable-quic"]
+                p.arguments=["/usr/bin/sandbox-exec","-f",policy.path,app.appendingPathComponent("Contents/MacOS/Claude").path,"--user-data-dir=\(ownProfile.path)","--proxy-server=\(sessionProxy)","--proxy-bypass-list=<-loopback>","--disable-quic","--disk-cache-size=268435456","--media-cache-size=134217728"]
                 p.currentDirectoryURL=workspace
                 p.environment=["PATH":"/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin","HOME":toolHome.path,"TMPDIR":temp.path,"HTTP_PROXY":sessionProxy,"HTTPS_PROXY":sessionProxy,"ALL_PROXY":sessionProxy,"NO_PROXY":"","LANG":"en_US.UTF-8"]
                 p.standardOutput=FileHandle.nullDevice; p.standardError=FileHandle.nullDevice
                 DispatchQueue.main.async {
                     do {
                         guard self.generation == token else {broker.stop();return}
-                        try p.run(); self.process=p;self.broker=broker;self.busy=false
+                        try p.run(); self.process=p;self.broker=broker;self.busy=false;self.nextStorageCheck=0
                         try admissionData.write(to:enrolled,options:.atomic)
                         try FileManager.default.setAttributes([.posixPermissions:0o600],ofItemAtPath:enrolled.path)
                         try JSONSerialization.data(withJSONObject:["workspace":workspace.path]).write(to:root.appendingPathComponent("workspace.json"),options:.atomic)
@@ -337,7 +371,15 @@ final class CageController: NSObject, NSApplicationDelegate {
     func verifyRunning(_ h:Handoff,token:UUID) {
         guard !busy else { return }; busy=true
         DispatchQueue.global(qos:.utility).async {
-            do {try CageRuntime.verifyExit(h);DispatchQueue.main.async {if self.generation == token {self.broker?.refresh()};self.busy=false}}
+            do {
+                if DispatchTime.now().uptimeNanoseconds >= self.nextStorageCheck {
+                    let root=FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/HONGAI-CAGE-Desktop")
+                    try checkStorageBudget(root)
+                    self.nextStorageCheck=DispatchTime.now().uptimeNanoseconds+30_000_000_000
+                }
+                try CageRuntime.verifyExit(h)
+                DispatchQueue.main.async {if self.generation == token {self.broker?.refresh()};self.busy=false}
+            }
             catch { DispatchQueue.main.async { if self.generation == token { self.stopSession(); self.status.stringValue="代理不可用或出口变化，会话已停止。" } } }
         }
     }
@@ -351,6 +393,9 @@ final class CageController: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification:Notification) {stopSession()}
 }
 
+if CommandLine.arguments.contains("--storage-self-test") {
+    do {try storageSelfTest();exit(0)} catch {fputs("\(error)\n",stderr);exit(1)}
+}
 if CommandLine.arguments.contains("--broker-self-test") {
     do {try brokerSelfTest();exit(0)} catch {fputs("\(error)\n",stderr);exit(1)}
 }
