@@ -240,12 +240,17 @@ enum CageRuntime {
 func checkStorageBudget(_ root:URL,maximumBytes:Int64=3*1024*1024*1024,maximumEntries:Int=30000) throws {
     let keys:Set<URLResourceKey>=[.isSymbolicLinkKey,.isRegularFileKey,.fileSizeKey]
     var failed=false
-    guard let iterator=FileManager.default.enumerator(at:root,includingPropertiesForKeys:Array(keys),options:[],errorHandler:{_,_ in failed=true;return false}) else {throw CageFailure("隔离存储无法核验，会话已停止。")}
+    func disappeared(_ error:Error)->Bool {
+        let issue=error as NSError
+        return issue.domain == NSCocoaErrorDomain && [NSFileNoSuchFileError,NSFileReadNoSuchFileError].contains(issue.code)
+    }
+    guard let iterator=FileManager.default.enumerator(at:root,includingPropertiesForKeys:Array(keys),options:[],errorHandler:{_,error in if disappeared(error){return true};failed=true;return false}) else {throw CageFailure("隔离存储无法核验，会话已停止。")}
     var entries=0,bytes:Int64=0
     for case let file as URL in iterator {
         entries+=1
         if entries > maximumEntries {throw CageFailure("隔离存储条目超过预算，请先整理本工具的数据。")}
-        let values=try file.resourceValues(forKeys:keys)
+        let values:URLResourceValues
+        do {values=try file.resourceValues(forKeys:keys)} catch {if disappeared(error){continue};throw error}
         if values.isSymbolicLink == true {iterator.skipDescendants();continue}
         if values.isRegularFile == true {bytes+=Int64(values.fileSize ?? 0)}
         if bytes > maximumBytes {throw CageFailure("隔离数据超过 3 GB 软容量预算，会话已停止；客户文件未删除。")}

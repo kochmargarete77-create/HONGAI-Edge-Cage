@@ -84,7 +84,7 @@ try{if($hostPolicy -and $hostPolicy.ValueCount -gt 0){throw 'EXISTING_ENTERPRISE
 Add-Type -Path (Join-Path $runtime 'resources\HONGAI-SessionProxy.dll')
 $broker=$null;$admitted=$false;$startedAt=[datetime]::UtcNow
 $statusPath=Join-Path $DataRoot 'session-status.json'
-$status=[ordered]@{schema='hongai.cage.session.v1';phase='PREPARING';box=$box;exitIp=$handoff.ExpectedEgressIp;mode='SIGNED_DESKTOP_SANDBOX_PILOT';loginAttempted=$false;globalNetworkChanges=0}
+$status=[ordered]@{schema='hongai.cage.session.v1';phase='PREPARING';box=$box;exitIp=$handoff.ExpectedEgressIp;mode='SIGNED_DESKTOP_SANDBOX_PILOT';loginAttempted=$false;globalNetworkChanges=0;storageBudgetChecks=0}
 function Save-Status{[IO.File]::WriteAllText($statusPath,($status|ConvertTo-Json -Depth 6),[Text.UTF8Encoding]::new($false))}
 Save-Status
 try{
@@ -128,7 +128,7 @@ try{
     Start-Sleep -Seconds 2
     $boxPids=@(Box-Pids)
     if(@(Get-Process Claude -ErrorAction SilentlyContinue|Where-Object {$_.Id -in $boxPids}).Count -eq 0){throw 'OFFICIAL_DESKTOP_DID_NOT_START_IN_OWN_BOX'}
-    $admitted=$true;$status.phase='RUNNING';$status.proxyPort=$broker.Port;$status.officialDesktopStarted=$true;$status.observedBoxProcesses=$boxPids.Count;Save-Status
+    $admitted=$true;$startedAt=[datetime]::UtcNow;$status.phase='RUNNING';$status.proxyPort=$broker.Port;$status.officialDesktopStarted=$true;$status.observedBoxProcesses=$boxPids.Count;Save-Status
     $nextStorageCheck=[datetime]::UtcNow.AddSeconds(20)
     while($true){
         Start-Sleep -Seconds 3
@@ -143,12 +143,17 @@ try{
             $queue=[Collections.Generic.Queue[string]]::new();$queue.Enqueue((Join-Path $DataRoot 'Box'))
             while($queue.Count -gt 0){
                 $directory=$queue.Dequeue();$directories++;if($directories -gt 5000){throw 'OWN_SANDBOX_STORAGE_BUDGET_REACHED'}
-                foreach($entry in [IO.Directory]::EnumerateFileSystemEntries($directory)){
-                    $attributes=[IO.File]::GetAttributes($entry)
-                    if($attributes -band [IO.FileAttributes]::ReparsePoint){continue}
-                    if($attributes -band [IO.FileAttributes]::Directory){$queue.Enqueue($entry)}else{$count++;$bytes+=([IO.FileInfo]::new($entry)).Length;if($count -gt 30000 -or $bytes -gt 3GB){throw 'OWN_SANDBOX_STORAGE_BUDGET_REACHED'}}
-                }
+                try{
+                    foreach($entry in [IO.Directory]::EnumerateFileSystemEntries($directory)){
+                        try{
+                            $attributes=[IO.File]::GetAttributes($entry)
+                            if($attributes -band [IO.FileAttributes]::ReparsePoint){continue}
+                            if($attributes -band [IO.FileAttributes]::Directory){$queue.Enqueue($entry)}else{$count++;$bytes+=([IO.FileInfo]::new($entry)).Length;if($count -gt 30000 -or $bytes -gt 3GB){throw 'OWN_SANDBOX_STORAGE_BUDGET_REACHED'}}
+                        }catch [IO.FileNotFoundException]{continue}catch [IO.DirectoryNotFoundException]{continue}
+                    }
+                }catch [IO.DirectoryNotFoundException]{if($directory -ieq (Join-Path $DataRoot 'Box')){throw 'OWN_SANDBOX_STORAGE_UNAVAILABLE'};continue}
             }
+            $status.storageBudgetChecks++
             $nextStorageCheck=[datetime]::UtcNow.AddSeconds(30)
         }
         if(-not $OfflineAcceptance){$null=Test-HongAiClashRoute -Handoff $handoff -Passes 1 -DelayMilliseconds 0}

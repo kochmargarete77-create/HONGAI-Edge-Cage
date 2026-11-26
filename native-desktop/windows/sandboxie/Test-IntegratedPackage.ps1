@@ -21,9 +21,9 @@ $stop=Join-Path $data 'signals\qa.stop'
 $test=[ordered]@{installer=$false;session=$false;nativeUI=$false;uninstall=$false;loginAttempted=$false;hostNetworkSettingsChanged=$false;customerAccepted=$false}
 try{
     $test.installer=$true
-    & (Join-Path $target 'Run-Session.ps1') -DataRoot $data -Workspace $workspace -HandoffPath $handoff -StopFile $stop -MaximumSessionSeconds 16 -OfflineAcceptance -OfficialExecutableOverride $OfficialExecutable
+    & (Join-Path $target 'Run-Session.ps1') -DataRoot $data -Workspace $workspace -HandoffPath $handoff -StopFile $stop -MaximumSessionSeconds 45 -OfflineAcceptance -OfficialExecutableOverride $OfficialExecutable
     $state=Get-Content -LiteralPath (Join-Path $data 'session-status.json') -Raw -Encoding UTF8|ConvertFrom-Json
-    if($state.phase -ne 'STOPPED' -or -not $state.officialDesktopStarted){$state|ConvertTo-Json -Depth 6|Write-Host;throw 'INTEGRATED_OFFICIAL_SESSION_NOT_ACCEPTED'}
+    if($state.phase -ne 'STOPPED' -or -not $state.officialDesktopStarted -or $state.storageBudgetChecks -lt 1){$state|ConvertTo-Json -Depth 6|Write-Host;throw 'INTEGRATED_OFFICIAL_SESSION_NOT_ACCEPTED'}
     $test.session=$true
     $gui=Start-Process -FilePath (Join-Path $target 'HONGAI-CAGE.exe') -ArgumentList '--ui-smoke-test' -PassThru
     if(-not $gui.WaitForExit(15000) -or $gui.ExitCode -ne 0){throw 'INTEGRATED_NATIVE_UI_FAILED'}
