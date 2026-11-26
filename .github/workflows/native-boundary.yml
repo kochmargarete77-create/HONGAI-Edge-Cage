@@ -30,6 +30,9 @@ jobs:
       - name: Official Claude Desktop offline start in process sandbox
         working-directory: native-desktop/macos
         run: python3 process-sandbox/test_official_desktop.py
+      - name: Build universal native desktop launcher and installer
+        working-directory: native-desktop/macos
+        run: bash process-sandbox/build-app.sh
       - name: Save development evidence only
         run: |
           mkdir -p evidence
@@ -38,3 +41,10 @@ jobs:
         with:
           name: macOS-native-boundary-development-evidence-${{ matrix.runner }}
           path: evidence
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macOS-desktop-pilot-${{ matrix.runner }}
+          path: |
+            native-desktop/macos/process-sandbox/build/*.pkg
+            native-desktop/macos/process-sandbox/build/SHA256SUMS.txt
+            native-desktop/macos/process-sandbox/build/BUILD-STATUS.txt
