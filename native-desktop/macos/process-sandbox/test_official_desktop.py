@@ -21,13 +21,19 @@ def run(command, **kwargs):
 def main():
     with tempfile.TemporaryDirectory(prefix="hongai-official-desktop-") as temp:
         root = pathlib.Path(temp).resolve()
-        image = root / "Claude.dmg"
-        url = "https://claude.ai/api/desktop/darwin/universal/dmg/latest/redirect"
+        image = root / "Claude.zip"
+        # Official CDN release, SHA independently pinned from Homebrew's published cask.
+        url = "https://downloads.claude.ai/releases/darwin/universal/7.37095.0/Claude-bc368c812ec26d3a5740519cc4d5cb69bbe43025.zip"
+        expected_sha = "800806556cacece6bdacbb9f3aef1849a9ed8d6fc2ee0eb2ed881a098d094eab"
         with urllib.request.urlopen(url, timeout=60) as response, image.open("wb") as output:
             if not response.url.startswith("https://"):
                 raise RuntimeError("OFFICIAL_DOWNLOAD_REQUIRES_TLS")
             shutil.copyfileobj(response, output, 1024 * 1024)
-        print("OFFICIAL_DMG_SHA256", hashlib.file_digest(image.open("rb"), "sha256").hexdigest(), flush=True)
+        with image.open("rb") as source:
+            actual_sha = hashlib.file_digest(source, "sha256").hexdigest()
+        if actual_sha != expected_sha:
+            raise RuntimeError("OFFICIAL_DOWNLOAD_HASH_MISMATCH")
+        print("OFFICIAL_ZIP_SHA256", actual_sha, flush=True)
         mount = root / "mounted"
         mount.mkdir()
         mounted = False
@@ -37,8 +43,7 @@ def main():
         endpoint.bind(("127.0.0.1", 0))
         port = endpoint.getsockname()[1]
         try:
-            run(["/usr/bin/hdiutil", "attach", "-readonly", "-nobrowse", "-mountpoint", str(mount), str(image)])
-            mounted = True
+            run(["/usr/bin/ditto", "-x", "-k", str(image), str(mount)])
             source = mount / "Claude.app"
             app = root / "Claude.app"
             run(["/usr/bin/ditto", str(source), str(app)])
