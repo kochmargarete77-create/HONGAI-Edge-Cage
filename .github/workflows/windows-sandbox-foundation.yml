@@ -1,0 +1,25 @@
+name: Windows signed sandbox foundation development
+on:
+  push:
+    branches: [native-desktop-development]
+    paths: ['native-desktop/windows/sandboxie/**', '.github/workflows/windows-sandbox-foundation.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  foundation:
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Test signed sandbox engine on disposable Windows host
+        shell: pwsh
+        run: ./native-desktop/windows/sandboxie/Test-Foundation.ps1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-signed-sandbox-foundation-evidence
+          path: |
+            native-desktop/windows/sandboxie/build/foundation-status.json
+            native-desktop/windows/sandboxie/build/installer.log
+            native-desktop/windows/sandboxie/build/reports/*.txt

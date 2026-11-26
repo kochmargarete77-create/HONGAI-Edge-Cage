@@ -2,6 +2,7 @@ name: Native desktop boundary development checks
 on:
   push:
     branches: [native-desktop-development]
+    paths: ['native-desktop/macos/**', '.github/workflows/native-boundary.yml']
   workflow_dispatch:
 permissions:
   contents: read
