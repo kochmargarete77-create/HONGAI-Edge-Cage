@@ -7,10 +7,14 @@ permissions:
   contents: read
 jobs:
   macos:
-    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Policy unit tests on real macOS
         working-directory: native-desktop/macos
         run: swift test
@@ -26,5 +30,6 @@ jobs:
           printf '%s\n' 'COMPILE_ONLY=true' 'MAC_INSTALL_ACCEPTANCE=NOT_RUN' 'SIGNED=false' 'CUSTOMER_RELEASE=false' > evidence/native-development-status.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: macOS-native-boundary-development-evidence
+          name: macOS-native-boundary-development-evidence-${{ matrix.runner }}
           path: evidence
+
