@@ -24,6 +24,7 @@ function Set-Box([string]$section,[string]$key,[string]$value,[switch]$Append){
     if($LASTEXITCODE -ne 0){throw "SBIE_CONFIGURATION_COMMAND_FAILED $key"}
 }
 function Check-Fixture([string]$mode,[int]$port,[int]$expected,[string]$label){
+    Start-Sleep -Seconds 2
     $report=Join-Path $root ('reports\'+[guid]::NewGuid().ToString('N')+'.txt')
     $arguments='/box:'+$box+' /silent /hide_window /wait "'+(Join-Path $root 'fixture.exe')+'" '+$mode+' '+$box+' "'+$report+'" "'+$root+'" '+$port
     $child=Start-Process -FilePath $start -ArgumentList $arguments -PassThru
@@ -74,6 +75,11 @@ try{
     Check-Fixture 'connect' $port 13 'proxy loss leaves sandbox offline'
     Check-Fixture 'nested' $other 13 'proxy loss never opens alternate route for tools'
     [ordered]@{passed=$results.Count;mode='SIGNED_ENGINE_FOUNDATION_ONLY';officialDesktopAccepted=$false;customerAccepted=$false;signer=$signature.SignerCertificate.Subject;hostNetworkSettingsChanged=$false;scope='fresh disposable CI runner only'} | ConvertTo-Json | Set-Content (Join-Path $root 'foundation-status.json') -Encoding UTF8
+} catch {
+    $failure=$_.Exception.Message
+    $events=@(Get-WinEvent -FilterHashtable @{LogName='Application';StartTime=(Get-Date).AddMinutes(-12)} -ErrorAction SilentlyContinue | Where-Object {$_.ProviderName -match 'Sandboxie|Application Error|.NET Runtime'} | Select-Object -First 25 TimeCreated,ProviderName,Id,Message)
+    [ordered]@{passed=$results.Count;failure=$failure;events=$events;customerAccepted=$false} | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $root 'foundation-status.json') -Encoding UTF8
+    throw
 } finally {
     if($listener){$listener.Stop()};if($alternate){$alternate.Stop()};if($six){$six.Stop()}
     if(Test-Path $start){& $start ("/box:"+$box) /terminate | Out-Null}
