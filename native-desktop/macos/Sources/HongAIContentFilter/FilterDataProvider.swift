@@ -32,8 +32,12 @@ public final class FilterDataProvider: NEFilterDataProvider {
               let code = code,
               SecCodeCheckValidity(code, SecCSFlags(rawValue: 0), nil) == errSecSuccess else { return nil }
         var information: CFDictionary?
-        guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &information) == errSecSuccess,
+        var staticCode: SecStaticCode?
+        guard SecCodeCopyStaticCode(code, SecCSFlags(rawValue: 0), &staticCode) == errSecSuccess,
+              let staticCode = staticCode,
+              SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &information) == errSecSuccess,
               let values = information as? [String: Any] else { return nil }
         return values[kSecCodeInfoIdentifier as String] as? String
     }
 }
+
