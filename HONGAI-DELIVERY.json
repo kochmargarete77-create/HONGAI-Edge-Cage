@@ -1,8 +1,8 @@
 {
   "product": "HONG AI CAGE Lite",
-  "version": "0.2.0",
-  "sourceArchiveSha256": "E05ED5A69B9CA2D743086A6EF8801B9F15DC453BEE6914964BC0555957E04172",
-  "sourceParts": 8,
-  "tests": 85,
+  "version": "0.2.1",
+  "sourceArchiveSha256": "8347DE137D411428BF13100AA5991320ED639DC307F7FA2C7008156B038EF167",
+  "sourceParts": 27,
+  "tests": 92,
   "containsCustomerSecrets": false
 }
