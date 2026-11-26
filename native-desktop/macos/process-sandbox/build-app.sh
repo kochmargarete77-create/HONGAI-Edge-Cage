@@ -34,6 +34,22 @@ PLIST
 "$app/Contents/MacOS/HongAICage" --broker-self-test
 # Verify that the generated production profile is accepted by the real macOS sandbox parser.
 /usr/bin/sandbox-exec -f "$destination/runtime-policy.sb" /usr/bin/true
-/usr/bin/pkgbuild --component "$app" --install-location /Applications --identifier com.hongai.cage.desktop.pilot --version 0.2.0 "$destination/HONGAI-CAGE-Desktop-macOS-Universal-PILOT.pkg"
+package_root="$destination/package-root"
+mkdir -p "$package_root/Applications"
+/usr/bin/ditto "$app" "$package_root/Applications/HONG AI CAGE Desktop.app"
+/usr/bin/pkgbuild --analyze --root "$package_root" "$destination/components.plist"
+python3 - "$destination/components.plist" <<'PY'
+import plistlib,sys
+path=sys.argv[1]
+with open(path,'rb') as source:
+    components=plistlib.load(source)
+for component in components:
+    component['BundleIsRelocatable']=False
+    component['BundleIsVersionChecked']=True
+    component['BundleHasStrictIdentifier']=True
+with open(path,'wb') as output:
+    plistlib.dump(components,output)
+PY
+/usr/bin/pkgbuild --root "$package_root" --component-plist "$destination/components.plist" --install-location / --identifier com.hongai.cage.desktop.pilot --version 0.2.0 "$destination/HONGAI-CAGE-Desktop-macOS-Universal-PILOT.pkg"
 /usr/bin/shasum -a 256 "$destination/HONGAI-CAGE-Desktop-macOS-Universal-PILOT.pkg" > "$destination/SHA256SUMS.txt"
 printf '%s\n' 'AD_HOC_SIGNED=true' 'NOTARIZED=false' 'CUSTOMER_ACCEPTED=false' 'OFFICIAL_CLAUDE_REQUIRED=true' > "$destination/BUILD-STATUS.txt"

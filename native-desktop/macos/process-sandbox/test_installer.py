@@ -38,7 +38,7 @@ def main():
         print(json.dumps({"installer":"PASS","universal":"PASS","signature":"AD_HOC_VALID","nativeUI":"PASS",
                           "loginAttempted":False,"hostNetworkSettingsChanged":False,"customerAccepted":False}),flush=True)
     finally:
-        if installed:
+        if installed and application.exists():
             info=plistlib.loads((application / "Contents/Info.plist").read_bytes())
             if info.get("CFBundleIdentifier") == receipt and not application.is_symlink():
                 # This exact fresh CI installation is the sole deletion target.
