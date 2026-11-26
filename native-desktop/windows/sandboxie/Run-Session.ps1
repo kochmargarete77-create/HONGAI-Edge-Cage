@@ -23,8 +23,13 @@ $sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 if($receipt.schema -cne 'hongai.cage.installation.v1' -or $receipt.dataRoot -cne $DataRoot -or $receipt.ownerSid -cne $sid){throw 'CAGE_INSTALLATION_OWNERSHIP_MISMATCH'}
 $safeDataRoot=$true
 if(($OfflineAcceptance -or $OfficialExecutableOverride) -and $env:GITHUB_ACTIONS -ne 'true'){throw 'TEST_OVERRIDES_REQUIRE_DISPOSABLE_CI'}
+$workspaceItem=Get-Item -LiteralPath $Workspace -ErrorAction Stop
+if(-not $workspaceItem.PSIsContainer -or ($workspaceItem.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'WORKSPACE_MUST_BE_A_REAL_LOCAL_DIRECTORY'}
 $Workspace=(Resolve-Path -LiteralPath $Workspace -ErrorAction Stop).Path.TrimEnd('\')
 if($Workspace -match '["\r\n*?]' -or $Workspace.Length -lt 4 -or $Workspace.StartsWith('\\') -or $Workspace -ieq $env:USERPROFILE -or $Workspace.StartsWith($DataRoot,[StringComparison]::OrdinalIgnoreCase) -or $Workspace.StartsWith($runtime,[StringComparison]::OrdinalIgnoreCase)){throw 'SELECT_A_SEPARATE_LOCAL_PROJECT_FOLDER'}
+foreach($systemFolder in @($env:USERPROFILE,$env:WINDIR,$env:ProgramFiles,${env:ProgramFiles(x86)})){
+    if($systemFolder -and ($Workspace -ieq $systemFolder -or $systemFolder.StartsWith($Workspace+'\',[StringComparison]::OrdinalIgnoreCase))){throw 'WORKSPACE_CANNOT_BE_A_SYSTEM_OR_WHOLE_HOME_DIRECTORY'}
+}
 $stop=[IO.Path]::GetFullPath($StopFile)
 if(-not $stop.StartsWith((Join-Path $DataRoot 'signals\'),[StringComparison]::OrdinalIgnoreCase)){throw 'STOP_SIGNAL_SCOPE_MISMATCH'}
 foreach($folder in '.tmp','signals','transport'){$null=New-Item -ItemType Directory -Path (Join-Path $DataRoot $folder) -Force}
@@ -113,7 +118,10 @@ try{
     Start-Sleep -Seconds 2
     if(-not $OfflineAcceptance){$null=Test-HongAiClashRoute -Handoff $handoff -Passes 1 -DelayMilliseconds 0}
     $broker.Refresh(16000)
-    if($newEnrollment){Copy-Item -LiteralPath $HandoffPath -Destination $enrolled -Force}
+    if($newEnrollment){
+        $admittedHandoff=[ordered]@{version=1;tool='clash';loopback=[ordered]@{protocol='http';host='127.0.0.1';mixedPort=$handoff.ProxyPort};expectedEgressIp=$handoff.ExpectedEgressIp;routeId=$handoff.RouteId;generatedAt=$handoff.GeneratedAt.UtcDateTime.ToString('yyyy-MM-ddTHH:mm:ss.fffZ',[Globalization.CultureInfo]::InvariantCulture)}
+        [IO.File]::WriteAllText($enrolled,($admittedHandoff|ConvertTo-Json -Depth 4),[Text.UTF8Encoding]::new($false))
+    }
     [IO.File]::WriteAllText((Join-Path $DataRoot 'workspace.json'),([ordered]@{workspace=$Workspace}|ConvertTo-Json),[Text.UTF8Encoding]::new($false))
     $arguments=@("/box:$box",'/silent',"/env:HTTP_PROXY=http://127.0.0.1:$($broker.Port)","/env:HTTPS_PROXY=http://127.0.0.1:$($broker.Port)","/env:ALL_PROXY=http://127.0.0.1:$($broker.Port)",$executable,"--proxy-server=http://127.0.0.1:$($broker.Port)",'--proxy-bypass-list=<-loopback>','--disable-quic','--disk-cache-size=268435456','--media-cache-size=134217728')
     $null=Invoke-Engine $start $arguments
@@ -131,8 +139,16 @@ try{
         if($currentPids.Count -eq 0){break}
         if($currentPids.Count -gt 64){throw 'OWN_SANDBOX_PROCESS_BUDGET_EXCEEDED'}
         if([datetime]::UtcNow -ge $nextStorageCheck){
-            $bytes=0L;$count=0
-            foreach($file in [IO.Directory]::EnumerateFiles((Join-Path $DataRoot 'Box'),'*',[IO.SearchOption]::AllDirectories)){$count++;$bytes+=([IO.FileInfo]::new($file)).Length;if($count -gt 30000 -or $bytes -gt 3GB){throw 'OWN_SANDBOX_STORAGE_BUDGET_REACHED'}}
+            $bytes=0L;$count=0;$directories=0
+            $queue=[Collections.Generic.Queue[string]]::new();$queue.Enqueue((Join-Path $DataRoot 'Box'))
+            while($queue.Count -gt 0){
+                $directory=$queue.Dequeue();$directories++;if($directories -gt 5000){throw 'OWN_SANDBOX_STORAGE_BUDGET_REACHED'}
+                foreach($entry in [IO.Directory]::EnumerateFileSystemEntries($directory)){
+                    $attributes=[IO.File]::GetAttributes($entry)
+                    if($attributes -band [IO.FileAttributes]::ReparsePoint){continue}
+                    if($attributes -band [IO.FileAttributes]::Directory){$queue.Enqueue($entry)}else{$count++;$bytes+=([IO.FileInfo]::new($entry)).Length;if($count -gt 30000 -or $bytes -gt 3GB){throw 'OWN_SANDBOX_STORAGE_BUDGET_REACHED'}}
+                }
+            }
             $nextStorageCheck=[datetime]::UtcNow.AddSeconds(30)
         }
         if(-not $OfflineAcceptance){$null=Test-HongAiClashRoute -Handoff $handoff -Passes 1 -DelayMilliseconds 0}

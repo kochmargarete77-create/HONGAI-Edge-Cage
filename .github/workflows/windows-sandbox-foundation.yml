@@ -8,7 +8,11 @@ permissions:
   contents: read
 jobs:
   foundation:
-    runs-on: windows-2025
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [windows-2022, windows-2025]
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -18,7 +22,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: windows-signed-sandbox-foundation-evidence
+          name: windows-signed-sandbox-foundation-evidence-${{ matrix.runner }}
           path: |
             native-desktop/windows/sandboxie/build/foundation-status.json
             native-desktop/windows/sandboxie/build/official-desktop-status.json
