@@ -1,5 +1,6 @@
 """Development-only inheritable process-boundary test; never edits host network settings."""
 import json
+import errno
 import os
 import pathlib
 import socket
@@ -16,14 +17,18 @@ def worker(args):
         if mode == "connect":
             with socket.create_connection((args[1], int(args[2])), timeout=1.5):
                 return 0
+        if mode == "udp":
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as client:
+                client.sendto(b"own fixture", (args[1], int(args[2])))
+                return 0
         if mode == "read":
             pathlib.Path(args[1]).read_text()
             return 0
         if mode == "write":
             pathlib.Path(args[1]).write_text("owned fixture")
             return 0
-    except (OSError, PermissionError):
-        return 13
+    except OSError as error:
+        return 13 if error.errno in (errno.EPERM, errno.EACCES) else 20
     return 64
 
 
@@ -53,7 +58,7 @@ def main():
                 raise RuntimeError("UNSAFE_FIXTURE_PATH")
             profile.write_text(
                 '(version 1)\n(allow default)\n(deny network*)\n'
-                f'(allow network-outbound (remote ip "127.0.0.1:{port}"))\n'
+                f'(allow network-outbound (remote tcp "localhost:{port}"))\n'
                 f'(deny file-read* file-write* (subpath "{protected}"))\n'
             )
             checks = []
@@ -74,12 +79,13 @@ def main():
             check("selected proxy permitted", ["connect", "127.0.0.1", str(port)], 0)
             check("alternate localhost port denied", ["connect", "127.0.0.1", str(other)], 13)
             check("IPv6 denied", ["connect", "::1", str(six)], 13)
+            check("UDP denied even on selected port", ["udp", "127.0.0.1", str(port)], 13)
             check("nested MCP-like child stays restricted", ["nested", "connect", "127.0.0.1", str(other)], 13)
             check("nested child can use selected proxy", ["nested", "connect", "127.0.0.1", str(port)], 0)
             check("ungranted fixture denied", ["read", str(secret)], 13)
             check("approved workspace write allowed", ["write", str(root / "workspace-result.txt")], 0)
             first.close()
-            check("proxy stopped stays unavailable", ["connect", "127.0.0.1", str(port)], 13)
+            check("proxy stopped stays unavailable", ["connect", "127.0.0.1", str(port)], 20)
             check("proxy stopped never opens alternate port", ["connect", "127.0.0.1", str(other)], 13)
             report = {"passed": len(checks), "customerAccepted": False,
                       "scope": "own child fixtures only; not official desktop acceptance",
@@ -93,3 +99,4 @@ if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "--worker":
         sys.exit(worker(sys.argv[2:]))
     main()
+
