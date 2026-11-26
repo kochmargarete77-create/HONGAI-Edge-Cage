@@ -1,0 +1,72 @@
+{
+  "schema": "hongai.native-delivery-status.v2",
+  "dateLocal": "2026-11-26",
+  "product": "HONG AI CAGE Desktop Native",
+  "installablePilot": true,
+  "customerReady": false,
+  "fullDesktopBusinessAcceptance": "NOT_RUN",
+  "hostNetworkSettingsChangedLocally": false,
+  "windows": {
+    "version": "0.3.0-pilot.2",
+    "sourceCommit": "f1ffecd6e7bf99007d9f17d7de7547decb1fb691",
+    "ciRun": 45904904009,
+    "testSystems": [
+      "Windows Server 2022",
+      "Windows Server 2025"
+    ],
+    "actualSetupAndExistingCore": "PASS",
+    "freshCoreInstall": "PASS",
+    "officialDesktopOfflineStart": "PASS",
+    "nativeUI": "PASS",
+    "recoverableUninstall": "PASS",
+    "localPayloadVerification": "PASS",
+    "localNativeUISmoke": "PASS",
+    "consumerWindowsHardware": "NOT_RUN",
+    "hostWifiDnsRoutesModified": false,
+    "signedUpstreamComponent": true,
+    "setupOrganizationalSignature": false,
+    "realMcpAndExtensionAcceptance": "NOT_RUN",
+    "coworkEnabled": false,
+    "liveStorageBudgetCheck": "PASS"
+  },
+  "macos": {
+    "version": "0.3.0 build 7",
+    "sourceCommit": "f1ffecd6e7bf99007d9f17d7de7547decb1fb691",
+    "finalCiRun": 45904903997,
+    "priorActualInstallAndOfflineStart": "PASS",
+    "testSystems": [
+      "macOS 15 arm64",
+      "macOS 15 Intel",
+      "macOS 26 arm64",
+      "macOS 26 Intel"
+    ],
+    "signature": "AD_HOC",
+    "notarized": false,
+    "networkExtensionInstalled": false,
+    "systemWideProcessProtection": false,
+    "physicalM5Acceptance": "NOT_RUN",
+    "externalBrowserAuthentication": "NOT_RUN",
+    "actualInstallAndOfflineStart": "PASS_ALL_FOUR_SYSTEM_ARCHITECTURES",
+    "storageBudgetTests": "PASS",
+    "nativeUI": "PASS_ALL_FOUR",
+    "exactUninstall": "PASS_ALL_FOUR"
+  },
+  "boundaries": [
+    "No changes to host Wi-Fi, TUN, system DNS, system proxy or routing by these installers",
+    "Only the launched process tree is protected on macOS",
+    "Dedicated Clash listener pinned to the final outbound is a deployment prerequisite",
+    "No real credentials entered during automated acceptance",
+    "Hardware identity removal, arbitrary content redaction and full system delegation are not claimed"
+  ],
+  "packages": {
+    "Mac": {
+      "sha256": "98e2626d4ae3db6009f5bfb506dc2c88469cfb8a4b84c9a80455ca274b62de84",
+      "bytes": 215070
+    },
+    "Windows": {
+      "sha256": "73C077F112D134C1B3A66AB855346CB5FD3A4521F8D735A2E719314AEBA92BC4",
+      "bytes": 3200512
+    }
+  },
+  "testsCompletedOn": "2026-11-26"
+}

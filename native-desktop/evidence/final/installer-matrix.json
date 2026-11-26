@@ -1,0 +1,48 @@
+{
+  "schema": "hongai.cage.installer-evidence.v1",
+  "runtimeCommit": "f1ffecd6e7bf99007d9f17d7de7547decb1fb691",
+  "windowsRun": 45904904009,
+  "macRun": 45904903997,
+  "windowsJobs": [
+    {
+      "name": "foundation (windows-2025)",
+      "conclusion": "success"
+    },
+    {
+      "name": "foundation (windows-2022)",
+      "conclusion": "success"
+    }
+  ],
+  "macJobs": [
+    {
+      "name": "macos (macos-15)",
+      "conclusion": "success"
+    },
+    {
+      "name": "macos (macos-15-intel)",
+      "conclusion": "success"
+    },
+    {
+      "name": "macos (macos-26-intel)",
+      "conclusion": "success"
+    },
+    {
+      "name": "macos (macos-26)",
+      "conclusion": "success"
+    }
+  ],
+  "actualInstaller": true,
+  "officialDesktopOfflineStart": true,
+  "loginAttempted": false,
+  "fullCustomerBusinessAccepted": false,
+  "installerHashes": {
+    "Mac": {
+      "sha256": "98e2626d4ae3db6009f5bfb506dc2c88469cfb8a4b84c9a80455ca274b62de84",
+      "bytes": 215070
+    },
+    "Windows": {
+      "sha256": "73C077F112D134C1B3A66AB855346CB5FD3A4521F8D735A2E719314AEBA92BC4",
+      "bytes": 3200512
+    }
+  }
+}

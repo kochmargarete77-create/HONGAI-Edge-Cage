@@ -1,0 +1,20 @@
+HONG AI CAGE｜停止与恢复
+
+出现异常时先点“停止隔离会话”，再退出工作台。不要停止 Clash，不要重置 DNS、网卡或系统代理。
+私有入口由工作台会话持有；停止后，隔离进程不能再通过该入口连接网络。
+
+Windows：
+退出 Claude 后，在安装目录执行：
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\Uninstall-Cage.ps1" -ConfirmUninstall
+卸载只停用本工具拥有的隔离区强制启动规则，把程序移动到同级 Recovery；隔离数据保留。
+共享的 Sandboxie 核心和官方 Claude 不会被删除。
+未卸载时，从普通 Claude 图标启动可能仍进入本工具的隔离区；工作台未运行时它会无法联网，这是保留的阻断规则。
+不要通过删除整个 Windows 防火墙策略或停用驱动来恢复。
+
+Mac：
+退出工作台与它启动的 Claude，将“应用程序”中的 HONG AI CAGE Desktop 移到废纸篓即可撤除启动工具。
+隔离数据位于 ~/Library/Application Support/HONGAI-CAGE-Desktop，保留以便恢复。
+无需卸载系统网络扩展，本版未安装此类扩展，也未更改系统代理与 Wi-Fi。
+未经单独确认不要删除该数据目录，里面可能有客户的新登录数据和工作配置。
+
+先保存日志，再处理恢复。不要删除其他旧版 Cage、其他代理工具或客户工程来“修复”。

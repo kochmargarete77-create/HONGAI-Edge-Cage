@@ -1,0 +1,35 @@
+HONG AI CAGE Native｜0.3.0 pilot.2
+
+本轮修复：
+1. 放弃重型虚拟机、Lima、cloud-init、AF_UNIX 控制通道和 Debian 下载路线。
+2. Windows 使用签名有效的 Sandboxie Classic 核心；网络限制跟随隔离区及子进程。
+3. 修复启动参数引号导致隔离引擎等待、Windows PowerShell 模块路径继承异常。
+4. 会话私有入口失效即关闭已有连接；租约使用单调时钟，避免校时影响。
+5. 拒绝其他回环端口、私网/元数据目的地址和 IPv6 旁路；限制连接数。
+6. 首次交接需三次出口一致；保存配置后，每次使用仍重新核验。
+7. Windows 限制隔离进程数和提交内存，检查自有存储预算，扫描时不跟随目录链接。
+8. 原登录状态不直接带入新隔离区，Clash 配置与控制文件不开放给隔离程序修改。
+9. 卸载保留恢复副本与客户数据，不删除共享代理工具与官方 Claude。
+
+自动化验收使用未经修改且签名有效的官方桌面程序，未登录账号。
+Windows：Server 2022 与 Server 2025 两代真实测试系统；实际安装器、已有核心复用、首次核心安装、官方进程启动、界面、停止和可恢复卸载。
+Mac：macOS 15/26 的 Apple Silicon 与 Intel；通用安装包、系统沙箱解析、继承网络限制、官方进程离线启动、原生界面与卸载。
+云端测试系统不等同于客户的具体 Windows 10/11 或 M5 实体机验收。
+
+可安装测试，不代表全部业务能力验收通过。
+客户在场时仍需验证登录、文件处理、所需 MCP/扩展；Cowork 虚拟机与跨进程系统集成未验收。
+Mac 当前仅保护从 CAGE 启动的进程树，不承诺保护用户另行在沙箱外启动的进程。
+不得因此替第一步评分自动补分，不能把未验证项计为 PASS。
+
+源码与构建记录：
+双端最终源码：
+https://github.com/kochmargarete77-create/HONGAI-Edge-Cage/tree/f1ffecd6e7bf99007d9f17d7de7547decb1fb691/native-desktop
+已修复缓存扫描期间文件自然消失造成的误停；Windows 会话测试覆盖实际容量巡检。
+最终双端复测全部通过：
+https://github.com/kochmargarete77-create/HONGAI-Edge-Cage/actions/runs/45904904009
+https://github.com/kochmargarete77-create/HONGAI-Edge-Cage/actions/runs/45904903997
+
+Sandboxie Classic 原始组件：GPLv3 或更高版本，保留原始身份、签名和许可证。
+对应源码：
+https://github.com/sandboxie-plus/Sandboxie/tree/v1.19.1
+这是 HONG AI 的集成工具，并非 Anthropic、Apple、Microsoft 或 Sandboxie 的官方认证产品。
