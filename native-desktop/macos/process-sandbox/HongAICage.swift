@@ -4,6 +4,35 @@ import Darwin
 import Network
 import CryptoKit
 
+enum ProxyDestinationPolicy {
+    static func publicIPv4(_ b:[UInt8])->Bool {
+        b.count == 4 && b[0] > 0 && b[0] < 224 && b[0] != 10 && b[0] != 127 &&
+        !(b[0] == 169 && b[1] == 254) && !(b[0] == 172 && (16...31).contains(b[1])) &&
+        !(b[0] == 192 && b[1] == 168) && !(b[0] == 100 && (64...127).contains(b[1])) &&
+        !(b[0] == 198 && (b[1] == 18 || b[1] == 19))
+    }
+    static func permits(_ line:String)->Bool {
+        let parts=line.split(separator:" ",omittingEmptySubsequences:false)
+        guard parts.count == 3,parts[0] == "CONNECT",["HTTP/1.0","HTTP/1.1"].contains(String(parts[2])) else {return false}
+        let authority=String(parts[1])
+        guard authority.count < 4096,!authority.contains(where:{"@/\\?#%".contains($0)||$0.isWhitespace}),
+              let c=URLComponents(string:"https://"+authority),c.user == nil,c.password == nil,c.query == nil,c.fragment == nil,
+              c.path == "" || c.path == "/",let port=c.port,(1...65535).contains(port),let value=c.host else {return false}
+        let host=value.trimmingCharacters(in:CharacterSet(charactersIn:"[]")).lowercased()
+        var four=in_addr()
+        if host.withCString({inet_aton($0,&four)}) == 1 {return publicIPv4(withUnsafeBytes(of:&four){Array($0)})}
+        var six=in6_addr()
+        if host.withCString({inet_pton(AF_INET6,$0,&six)}) == 1 {
+            let bytes=withUnsafeBytes(of:&six){Array($0)}
+            if bytes.prefix(10).allSatisfy({$0==0}) && bytes[10] == 255 && bytes[11] == 255 {return publicIPv4(Array(bytes.suffix(4)))}
+            return bytes[0]&0xE0 == 0x20
+        }
+        let domain=host.trimmingCharacters(in:CharacterSet(charactersIn:"."))
+        guard domain.contains("."),domain.count <= 253,domain.allSatisfy({$0.isASCII && ($0.isLetter||$0.isNumber||$0=="-"||$0==".")}) else {return false}
+        return ![".localhost",".local",".internal",".lan",".home",".arpa"].contains(where:{domain.hasSuffix($0)})
+    }
+}
+
 // A session-owned endpoint, rather than Clash's reusable general port. Closing the
 // supervisor closes every tunnel even if an approved tool outlives its parent.
 final class SessionBroker {
@@ -11,12 +40,12 @@ final class SessionBroker {
     private let lock = NSLock()
     private var listener: NWListener?
     private var pairs: [UUID:(NWConnection,NWConnection)] = [:]
-    private var validUntil = Date.distantPast
+    private var validUntil:UInt64 = 0
     private var stopped = false
     private let upstream: UInt16
     private(set) var port: UInt16 = 0
     init(upstream: UInt16) { self.upstream=upstream }
-    func refresh() { lock.lock(); if !stopped {validUntil=Date().addingTimeInterval(12)}; lock.unlock() }
+    func refresh() { lock.lock(); if !stopped {validUntil=DispatchTime.now().uptimeNanoseconds+12_000_000_000}; lock.unlock() }
     func start() throws {
         let parameters=NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host:"127.0.0.1",port:.any)
@@ -34,29 +63,43 @@ final class SessionBroker {
         refresh()
     }
     private func accept(_ incoming:NWConnection) {
-        lock.lock();let admitted = !stopped && Date() < validUntil && pairs.count < 64;lock.unlock()
+        lock.lock();let admitted = !stopped && DispatchTime.now().uptimeNanoseconds < validUntil && pairs.count < 64;lock.unlock()
         guard admitted else {incoming.cancel();return}
         let outgoing=NWConnection(host:"127.0.0.1",port:NWEndpoint.Port(rawValue:upstream)!,using:.tcp)
         let key=UUID();lock.lock();pairs[key]=(incoming,outgoing);lock.unlock()
         func close(){self.lock.lock();let pair=self.pairs.removeValue(forKey:key);self.lock.unlock();pair?.0.stateUpdateHandler=nil;pair?.1.stateUpdateHandler=nil;pair?.0.cancel();pair?.1.cancel()}
         func pump(_ source:NWConnection,_ destination:NWConnection){
             source.receive(minimumIncompleteLength:1,maximumLength:65_536){data,_,complete,error in
-                self.lock.lock();let allowed = !self.stopped && Date() < self.validUntil;self.lock.unlock()
+                self.lock.lock();let allowed = !self.stopped && DispatchTime.now().uptimeNanoseconds < self.validUntil;self.lock.unlock()
                 guard allowed,error == nil else {close();return}
                 if let data=data,!data.isEmpty {destination.send(content:data,completion:.contentProcessed { sendError in if sendError != nil || complete {close()} else {pump(source,destination)} })}
                 else if complete {close()} else {pump(source,destination)}
             }
         }
+        var header=Data()
+        func readHeader(){
+            incoming.receive(minimumIncompleteLength:1,maximumLength:4096){data,_,complete,error in
+                self.lock.lock();let valid = !self.stopped && DispatchTime.now().uptimeNanoseconds < self.validUntil;self.lock.unlock()
+                guard valid,error == nil,let data=data,!data.isEmpty else {close();return}
+                header.append(data)
+                guard header.count <= 16384 else {close();return}
+                if header.range(of:Data("\r\n\r\n".utf8)) != nil {
+                    let line=String(decoding:header,as:UTF8.self).components(separatedBy:"\r\n")[0]
+                    guard ProxyDestinationPolicy.permits(line) else {close();return}
+                    outgoing.start(queue:self.queue)
+                }else if complete {close()}else{readHeader()}
+            }
+        }
         outgoing.stateUpdateHandler={ state in
-            if case .ready = state {incoming.start(queue:self.queue);pump(incoming,outgoing);pump(outgoing,incoming)}
+            if case .ready = state {outgoing.send(content:header,completion:.contentProcessed {error in if error != nil {close()}else{pump(incoming,outgoing);pump(outgoing,incoming)}})}
             if case .failed = state {close()}
             if case .cancelled = state {close()}
         }
-        incoming.stateUpdateHandler={ state in if case .failed = state {close()} }
-        outgoing.start(queue:queue)
+        incoming.stateUpdateHandler={ state in if case .failed = state {close()};if case .ready = state {readHeader()} }
+        incoming.start(queue:queue)
     }
     func stop(){
-        lock.lock();stopped=true;validUntil = .distantPast;let active=Array(pairs.values);pairs.removeAll();lock.unlock()
+        lock.lock();stopped=true;validUntil=0;let active=Array(pairs.values);pairs.removeAll();lock.unlock()
         listener?.cancel();for pair in active {pair.0.stateUpdateHandler=nil;pair.1.stateUpdateHandler=nil;pair.0.cancel();pair.1.cancel()}
     }
     deinit {stop()}
@@ -81,7 +124,7 @@ func brokerSelfTest() throws {
     func exchange()->Bool {
         let done=DispatchSemaphore(value:0),lock=NSLock();var matched=false
         let client=NWConnection(host:"127.0.0.1",port:NWEndpoint.Port(rawValue:broker.port)!,using:.tcp)
-        let content=Data("hongai-owned-fixture".utf8)
+        let content=Data("CONNECT fixture.example:443 HTTP/1.1\r\nHost: fixture.example:443\r\n\r\n".utf8)
         client.stateUpdateHandler={state in
             if case .failed = state {done.signal()}
             if case .ready = state {client.send(content:content,completion:.contentProcessed {error in
@@ -96,6 +139,10 @@ func brokerSelfTest() throws {
     guard !exchange() else {throw CageFailure("BROKER_EXPIRED_LEASE_ACCEPTED")};print("PASS expired verification lease rejects new streams")
     broker.stop()
     guard !exchange() else {throw CageFailure("BROKER_STOP_ACCEPTED")};print("PASS stopped session gateway has no alternative route")
+    for target in ["127.0.0.1:9090","[::1]:9090","169.254.169.254:80","2130706433:80","10.0.0.1:80","metadata.google.internal:80","user@fixture.example:443"] {
+        guard !ProxyDestinationPolicy.permits("CONNECT \(target) HTTP/1.1") else {throw CageFailure("PRIVATE_DESTINATION_ACCEPTED")}
+        print("PASS local/metadata destination rejected \(target)")
+    }
 }
 
 struct CageFailure: Error, CustomStringConvertible {
@@ -112,10 +159,10 @@ struct Handoff: Decodable {
     let routeId: String
     let generatedAt: String
     var proxy: String { "http://127.0.0.1:\(loopback.mixedPort)" }
-    static func load(_ file: URL) throws -> Handoff {
-        return try decode(Data(contentsOf:file))
+    static func load(_ file: URL,requireFresh:Bool=true) throws -> Handoff {
+        return try decode(Data(contentsOf:file),requireFresh:requireFresh)
     }
-    static func decode(_ data:Data) throws -> Handoff {
+    static func decode(_ data:Data,requireFresh:Bool=true) throws -> Handoff {
         guard data.count <= 16_384,
               let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               Set(object.keys) == Set(["version", "tool", "loopback", "expectedEgressIp", "routeId", "generatedAt"]),
@@ -135,7 +182,7 @@ struct Handoff: Decodable {
         let format = ISO8601DateFormatter()
         format.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let date = format.date(from: h.generatedAt) ?? ISO8601DateFormatter().date(from: h.generatedAt)
-        guard let date = date, (-30...600).contains(Date().timeIntervalSince(date)) else { throw CageFailure("交接文件已过期，请重新生成（十分钟内有效）。") }
+        guard let date = date, Date().timeIntervalSince(date) >= -30, !requireFresh || Date().timeIntervalSince(date) <= 600 else { throw CageFailure("交接文件已过期，请重新生成（十分钟内有效）。") }
         return h
     }
 }
@@ -181,6 +228,9 @@ enum CageRuntime {
         for path in deny.dropFirst() { result += "(deny file-read* file-write* (subpath \"\(path)\"))\n" }
         result += "(deny file-write* (subpath \"\(application.path)\"))\n"
         result += "(deny file-write* (subpath \"\(wrapper)\"))\n"
+        let trustedRoot=home.appendingPathComponent("Library/Application Support/HONGAI-CAGE-Desktop")
+        for name in ["enrolled-handoff.json","workspace.json","boundary.sb"] {result += "(deny file-write* (literal \"\(trustedRoot.appendingPathComponent(name).path)\"))\n"}
+        result += "(deny file-write* (require-all (subpath \"\(trustedRoot.path)\") (require-not (subpath \"\(trustedRoot.appendingPathComponent("profile").path)\")) (require-not (subpath \"\(trustedRoot.appendingPathComponent("temp").path)\")) (require-not (subpath \"\(trustedRoot.appendingPathComponent("tool-home").path)\"))))\n"
         return result
     }
 }
@@ -219,6 +269,10 @@ final class CageController: NSObject, NSApplicationDelegate {
         content.translatesAutoresizingMaskIntoConstraints = false; window.contentView!.addSubview(content)
         NSLayoutConstraint.activate([content.leadingAnchor.constraint(equalTo:window.contentView!.leadingAnchor),content.trailingAnchor.constraint(equalTo:window.contentView!.trailingAnchor),content.topAnchor.constraint(equalTo:window.contentView!.topAnchor)])
         window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps:true)
+        let trustedRoot=FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/HONGAI-CAGE-Desktop")
+        let enrolled=trustedRoot.appendingPathComponent("enrolled-handoff.json")
+        if FileManager.default.fileExists(atPath:enrolled.path){handoffURL=enrolled;fileLabel.stringValue="已保存交接配置；启动时自动重新核验出口。"}
+        if let data=try? Data(contentsOf:trustedRoot.appendingPathComponent("workspace.json")),let object=(try? JSONSerialization.jsonObject(with:data)) as? [String:String],let path=object["workspace"]{workspace=URL(fileURLWithPath:path);workspaceLabel.stringValue=path}
         if CommandLine.arguments.contains("--ui-smoke-test") {
             DispatchQueue.main.asyncAfter(deadline:.now()+2) {
                 guard self.window.isVisible,self.window.contentView!.subviews.count > 0 else {exit(1)}
@@ -244,14 +298,17 @@ final class CageController: NSObject, NSApplicationDelegate {
         DispatchQueue.global(qos:.userInitiated).async {
             do {
                 guard NSRunningApplication.runningApplications(withBundleIdentifier:"com.anthropic.claudefordesktop").isEmpty else { throw CageFailure("请先退出正在运行的 Claude。") }
-                let h=try Handoff.load(file), app=try CageRuntime.officialApp()
-                for _ in 0..<3 { try CageRuntime.verifyExit(h) }
                 let home=FileManager.default.homeDirectoryForCurrentUser
                 let root=home.appendingPathComponent("Library/Application Support/HONGAI-CAGE-Desktop")
+                guard !workspace.path.hasPrefix(root.path+"/"),!root.path.hasPrefix(workspace.path+"/"),workspace != root else {throw CageFailure("工作文件夹不能与隔离配置目录重叠。")}
+                let enrolled=root.appendingPathComponent("enrolled-handoff.json")
+                let admissionData=try Data(contentsOf:file)
+                let h=try Handoff.decode(admissionData,requireFresh:file.standardizedFileURL != enrolled.standardizedFileURL), app=try CageRuntime.officialApp()
+                for _ in 0..<3 { try CageRuntime.verifyExit(h) }
                 guard root.resolvingSymlinksInPath() == root.standardizedFileURL else {throw CageFailure("隔离目录包含链接，请由维护人员检查。")}
                 try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true,attributes:[.posixPermissions:0o700])
-                let ownProfile=root.appendingPathComponent("profile"), temp=root.appendingPathComponent("temp")
-                for item in [ownProfile,temp] { try FileManager.default.createDirectory(at:item,withIntermediateDirectories:true,attributes:[.posixPermissions:0o700]) }
+                let ownProfile=root.appendingPathComponent("profile"), temp=root.appendingPathComponent("temp"), toolHome=root.appendingPathComponent("tool-home")
+                for item in [ownProfile,temp,toolHome] { try FileManager.default.createDirectory(at:item,withIntermediateDirectories:true,attributes:[.posixPermissions:0o700]) }
                 let broker=SessionBroker(upstream:UInt16(h.loopback.mixedPort));try broker.start()
                 let sessionProxy="http://127.0.0.1:\(broker.port)"
                 let policy=root.appendingPathComponent("boundary.sb")
@@ -259,16 +316,20 @@ final class CageController: NSObject, NSApplicationDelegate {
                 let p=Process(); p.executableURL=Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/CageSession")
                 p.arguments=["/usr/bin/sandbox-exec","-f",policy.path,app.appendingPathComponent("Contents/MacOS/Claude").path,"--user-data-dir=\(ownProfile.path)","--proxy-server=\(sessionProxy)","--proxy-bypass-list=<-loopback>","--disable-quic"]
                 p.currentDirectoryURL=workspace
-                p.environment=["PATH":"/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin","HOME":root.path,"TMPDIR":temp.path,"HTTP_PROXY":sessionProxy,"HTTPS_PROXY":sessionProxy,"ALL_PROXY":sessionProxy,"NO_PROXY":"","LANG":"en_US.UTF-8"]
+                p.environment=["PATH":"/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin","HOME":toolHome.path,"TMPDIR":temp.path,"HTTP_PROXY":sessionProxy,"HTTPS_PROXY":sessionProxy,"ALL_PROXY":sessionProxy,"NO_PROXY":"","LANG":"en_US.UTF-8"]
                 p.standardOutput=FileHandle.nullDevice; p.standardError=FileHandle.nullDevice
                 DispatchQueue.main.async {
                     do {
                         guard self.generation == token else {broker.stop();return}
                         try p.run(); self.process=p;self.broker=broker;self.busy=false
+                        try admissionData.write(to:enrolled,options:.atomic)
+                        try FileManager.default.setAttributes([.posixPermissions:0o600],ofItemAtPath:enrolled.path)
+                        try JSONSerialization.data(withJSONObject:["workspace":workspace.path]).write(to:root.appendingPathComponent("workspace.json"),options:.atomic)
+                        self.handoffURL=enrolled
                         p.terminationHandler={ _ in DispatchQueue.main.async { if self.process === p { self.stopSession(); self.status.stringValue="桌面进程已退出。" } } }
                         self.status.stringValue="隔离会话运行中；指定出口 \(h.expectedEgressIp)。"
                         self.timer=Timer.scheduledTimer(withTimeInterval:4,repeats:true) { _ in self.verifyRunning(h,token:token) }
-                    } catch {broker.stop();self.busy=false;self.start.isEnabled=true;self.status.stringValue="启动失败：\(error)"}
+                    } catch {broker.stop();self.stopSession();self.status.stringValue="启动失败：\(error)"}
                 }
             } catch { DispatchQueue.main.async { self.busy=false; self.start.isEnabled=true; self.status.stringValue="未启动：\(error)" } }
         }

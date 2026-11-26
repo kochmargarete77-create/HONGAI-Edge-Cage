@@ -12,6 +12,8 @@ def run(command, **kwargs):
 
 
 def main():
+    if os.environ.get("GITHUB_ACTIONS") != "true" or os.environ.get("RUNNER_OS") != "macOS":
+        raise RuntimeError("DISPOSABLE_GITHUB_CI_ONLY_DO_NOT_RUN_ON_CUSTOMER_HOST")
     base=pathlib.Path(__file__).resolve().parent
     package=base / "build/HONGAI-CAGE-Desktop-macOS-Universal-PILOT.pkg"
     application=pathlib.Path("/Applications/HONG AI CAGE Desktop.app")
