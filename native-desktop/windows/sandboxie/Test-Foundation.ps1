@@ -71,6 +71,10 @@ try{
     Check-Fixture 'nested' $other 13 'different MCP-like child cannot bypass network rule'
     Check-Fixture 'read-secret' $port 13 'ungranted host fixture is unreadable'
     Check-Fixture 'workspace' $port 0 'approved workspace remains usable'
+    Check-Fixture 'try-change-policy' $port 0 'sandboxed tool configuration change attempt completed'
+    $activeRules=(& $ini query $box NetworkAccess | Out-String)
+    if($activeRules -notmatch '\*,Block' -or $activeRules -notmatch [regex]::Escape("Port=$port;Address=127.0.0.1;Protocol=TCP")){throw 'SANDBOXED_TOOL_CHANGED_HOST_NETWORK_RULES'}
+    Write-Host 'PASS sandboxed tool cannot replace host sandbox network policy'
     if(-not(Test-Path (Join-Path $root 'workspace\approved-result.txt'))){throw 'WORKSPACE_WRITE_WAS_NOT_SHARED_AS_EXPECTED'}
     $listener.Stop()
     Check-Fixture 'connect' $port 13 'proxy loss leaves sandbox offline'

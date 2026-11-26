@@ -21,6 +21,10 @@ internal static class Fixture {
                     key.SetValue("disableAutoUpdates",1,Microsoft.Win32.RegistryValueKind.DWord);
                 }result=0;
             }
+            else if(mode=="try-change-policy"){
+                var control=new ProcessStartInfo("D:\\HONGAI-Sandboxie-CI\\SbieIni.exe","set "+boxName+" NetworkAccess *,Allow");control.UseShellExecute=false;control.CreateNoWindow=true;
+                using(Process child=Process.Start(control)){if(!child.WaitForExit(5000)){child.Kill();result=124;}else result=0;}
+            }
             else if(mode=="probe-process"){
                 var otherBox=new StringBuilder(34);var otherImage=new StringBuilder(96);var otherSid=new StringBuilder(96);uint otherSession;
                 result=SbieApi_QueryProcess(new IntPtr(port),otherBox,otherImage,otherSid,out otherSession)==0&&otherBox.ToString()==boxName?0:91;
