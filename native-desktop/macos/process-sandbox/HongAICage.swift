@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import Darwin
 import Network
+import CryptoKit
 
 // A session-owned endpoint, rather than Clash's reusable general port. Closing the
 // supervisor closes every tunnel even if an approved tool outlives its parent.
@@ -112,7 +113,9 @@ struct Handoff: Decodable {
     let generatedAt: String
     var proxy: String { "http://127.0.0.1:\(loopback.mixedPort)" }
     static func load(_ file: URL) throws -> Handoff {
-        let data = try Data(contentsOf: file)
+        return try decode(Data(contentsOf:file))
+    }
+    static func decode(_ data:Data) throws -> Handoff {
         guard data.count <= 16_384,
               let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               Set(object.keys) == Set(["version", "tool", "loopback", "expectedEgressIp", "routeId", "generatedAt"]),
@@ -193,8 +196,11 @@ final class CageController: NSObject, NSApplicationDelegate {
     var busy = false, generation = UUID()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        window = NSWindow(contentRect:NSRect(x:0,y:0,width:650,height:430), styleMask:[.titled,.closable,.miniaturizable], backing:.buffered, defer:false)
+        window = NSWindow(contentRect:NSRect(x:0,y:0,width:650,height:500), styleMask:[.titled,.closable,.miniaturizable], backing:.buffered, defer:false)
         window.title = "HONG AI CAGE · 桌面进程隔离测试版"; window.center()
+        window.appearance=NSAppearance(named:.aqua)
+        window.contentView!.wantsLayer=true
+        window.contentView!.layer!.backgroundColor=NSColor(calibratedWhite:0.975,alpha:1).cgColor
         let content = NSStackView(); content.orientation = .vertical; content.alignment = .leading; content.spacing = 18; content.edgeInsets = NSEdgeInsets(top:28,left:30,bottom:28,right:30)
         let brand = NSTextField(labelWithString:"HONG AI  /  CAGE")
         brand.font = .systemFont(ofSize:27,weight:.bold); brand.textColor = NSColor(calibratedRed:0.7,green:0.05,blue:0.12,alpha:1)
@@ -204,6 +210,8 @@ final class CageController: NSObject, NSApplicationDelegate {
         let folder = NSButton(title:"② 选择工作文件夹",target:self,action:#selector(chooseWorkspace))
         start.target = self; start.action = #selector(startSession); start.bezelStyle = .rounded
         let stop = NSButton(title:"停止隔离会话",target:self,action:#selector(stopSession))
+        for button in [choose,folder,start,stop] {button.bezelStyle = .rounded;button.controlSize = .large}
+        start.contentTintColor=NSColor(calibratedRed:0.7,green:0.05,blue:0.12,alpha:1)
         let actions = NSStackView(views:[start,stop]); actions.spacing = 18
         let note = NSTextField(wrappingLabelWithString:"保留现有 Clash、Wi-Fi 和远控设置。仅本进程树受限；外部浏览器登录、Cowork 和系统集成尚未验收。")
         note.font = .systemFont(ofSize:12); note.textColor = .secondaryLabelColor
@@ -284,6 +292,23 @@ final class CageController: NSObject, NSApplicationDelegate {
 
 if CommandLine.arguments.contains("--broker-self-test") {
     do {try brokerSelfTest();exit(0)} catch {fputs("\(error)\n",stderr);exit(1)}
+}
+if CommandLine.arguments.count == 5 && CommandLine.arguments[1] == "--create-handoff" {
+    do {
+        guard let port=Int(CommandLine.arguments[2]) else {throw CageFailure("INVALID_PROXY_PORT")}
+        let ip=CommandLine.arguments[3],date=ISO8601DateFormatter().string(from:Date())
+        let route=SHA256.hash(data:Data("\(port)|\(ip)|\(date)|\(UUID().uuidString)".utf8)).map{String(format:"%02x",$0)}.joined().prefix(24)
+        let object:[String:Any] = ["version":1,"tool":"clash","loopback":["protocol":"http","host":"127.0.0.1","mixedPort":port],"expectedEgressIp":ip,"routeId":String(route),"generatedAt":date]
+        let data=try JSONSerialization.data(withJSONObject:object,options:[.prettyPrinted,.sortedKeys])
+        let handoff=try Handoff.decode(data)
+        for _ in 0..<3 {try CageRuntime.verifyExit(handoff)}
+        let destination=URL(fileURLWithPath:CommandLine.arguments[4]).standardizedFileURL
+        guard destination.lastPathComponent == "clash-handoff.json" else {throw CageFailure("OUTPUT_MUST_BE_CLASH_HANDOFF_JSON")}
+        try data.write(to:destination,options:.atomic)
+        try FileManager.default.setAttributes([.posixPermissions:0o600],ofItemAtPath:destination.path)
+        print("已核验三次出口并生成交接文件：\(destination.path)")
+        exit(0)
+    } catch {fputs("\(error)\n",stderr);exit(1)}
 }
 if CommandLine.arguments.contains("--verify-policy") || CommandLine.arguments.count == 4 && CommandLine.arguments[1] == "--emit-policy" {
     do {
