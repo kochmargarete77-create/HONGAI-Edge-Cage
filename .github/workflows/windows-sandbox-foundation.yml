@@ -33,3 +33,4 @@ jobs:
             native-desktop/windows/sandboxie/integrated-build/integrated-status.json
             native-desktop/windows/sandboxie/integrated-build/installer-result.json
             native-desktop/windows/sandboxie/integrated-build/session-status.json
+            native-desktop/windows/sandboxie/integrated-build/fresh-*.json

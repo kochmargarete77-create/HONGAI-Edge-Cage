@@ -68,7 +68,7 @@ try {
     Set-Acl -LiteralPath $data -AclObject $acl
     $stage=$target+'.stage-'+[guid]::NewGuid().ToString('N');$null=New-Item -ItemType Directory -Path $stage
     Copy-Item -Path (Join-Path $payload '*') -Destination $stage -Recurse
-    $receipt=[ordered]@{schema='hongai.cage.installation.v1';version='0.3.0-pilot.1';ownerSid=$ownerSid.Value;installRoot=$target;dataRoot=$data;enginePath=$core;engineFreshlyInstalled=$fresh;installedUtc=[datetime]::UtcNow.ToString('o');customerAccepted=$false}
+    $receipt=[ordered]@{schema='hongai.cage.installation.v1';version='0.3.0-pilot.2';ownerSid=$ownerSid.Value;installRoot=$target;dataRoot=$data;enginePath=$core;engineFreshlyInstalled=$fresh;installedUtc=[datetime]::UtcNow.ToString('o');customerAccepted=$false}
     $json=$receipt|ConvertTo-Json
     [IO.File]::WriteAllText((Join-Path $stage 'installation.json'),$json,[Text.UTF8Encoding]::new($false))
     [IO.File]::WriteAllText((Join-Path $data 'installation.json'),$json,[Text.UTF8Encoding]::new($false))

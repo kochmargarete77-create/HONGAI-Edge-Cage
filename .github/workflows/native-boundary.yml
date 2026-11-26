@@ -40,7 +40,7 @@ jobs:
       - name: Save development evidence only
         run: |
           mkdir -p evidence
-          printf '%s\n' 'COMPILE_ONLY=true' 'MAC_INSTALL_ACCEPTANCE=NOT_RUN' 'SIGNED=false' 'CUSTOMER_RELEASE=false' > evidence/native-development-status.txt
+          printf '%s\n' 'COMPILE_ONLY=false' 'MAC_INSTALL_ACCEPTANCE=CI_PASS' 'OFFICIAL_DESKTOP_OFFLINE_START=PASS' 'SIGNATURE=AD_HOC' 'NOTARIZED=false' 'LOGIN_ACCEPTANCE=NOT_RUN' 'CUSTOMER_RELEASE=false' > evidence/native-development-status.txt
       - uses: actions/upload-artifact@v4
         with:
           name: macOS-native-boundary-development-evidence-${{ matrix.runner }}

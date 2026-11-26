@@ -1,16 +1,18 @@
 [CmdletBinding()]
-param([Parameter(Mandatory)][string]$EnginePath,[Parameter(Mandatory)][string]$OfficialExecutable)
+param([string]$EnginePath,[Parameter(Mandatory)][string]$OfficialExecutable,[switch]$FreshEngine)
 $ErrorActionPreference='Stop'
 if($env:GITHUB_ACTIONS -ne 'true'){throw 'DISPOSABLE_CI_ONLY'}
 $output=Join-Path $PSScriptRoot 'integrated-build'
-& (Join-Path $PSScriptRoot 'Build-Installer.ps1') -Destination $output
-$setup=Join-Path $output 'HONGAI-CAGE-Desktop-0.3.0-pilot.1-Windows-x64-Setup.exe'
-$target='D:\HONGAI-CAGE-Integrated-QA\Desktop'
-$env:HONGAI_CAGE_CI_RESULT=Join-Path $output 'installer-result.json'
+if(-not $FreshEngine){& (Join-Path $PSScriptRoot 'Build-Installer.ps1') -Destination $output}
+$setup=Join-Path $output 'HONGAI-CAGE-Desktop-0.3.0-pilot.2-Windows-x64-Setup.exe'
+$target=if($FreshEngine){'D:\HONGAI-CAGE-Fresh-QA\Desktop'}else{'D:\HONGAI-CAGE-Integrated-QA\Desktop'}
+$prefix=if($FreshEngine){'fresh-'}else{''}
+$env:HONGAI_CAGE_CI_RESULT=Join-Path $output ($prefix+'installer-result.json')
 $installer=Start-Process -FilePath $setup -ArgumentList ('--install-for-ci "'+$target+'"') -Wait -PassThru
 if($installer.ExitCode -ne 0){if(Test-Path $env:HONGAI_CAGE_CI_RESULT){Get-Content -LiteralPath $env:HONGAI_CAGE_CI_RESULT -Raw|Write-Host};throw 'INTEGRATED_INSTALLER_FAILED'}
-$data='D:\HONGAI-CAGE-Integrated-QA\DesktopData'
-$workspace='D:\HONGAI-CAGE-Integrated-QA\Workspace';$null=New-Item -ItemType Directory -Path $workspace -Force
+$data=Join-Path (Split-Path $target -Parent) 'DesktopData'
+$workspace=Join-Path (Split-Path $target -Parent) 'Workspace';$null=New-Item -ItemType Directory -Path $workspace -Force
+if($FreshEngine){$receipt=Get-Content -LiteralPath (Join-Path $data 'installation.json') -Raw -Encoding UTF8|ConvertFrom-Json;if(-not $receipt.engineFreshlyInstalled){throw 'FRESH_ENGINE_PATH_WAS_NOT_EXERCISED'}}
 $socket=[Net.Sockets.Socket]::new([Net.Sockets.AddressFamily]::InterNetwork,[Net.Sockets.SocketType]::Stream,[Net.Sockets.ProtocolType]::Tcp)
 $socket.Bind([Net.IPEndPoint]::new([Net.IPAddress]::Loopback,0));$port=$socket.LocalEndPoint.Port
 $handoff=Join-Path $PSScriptRoot 'integrated-handoff.json'
@@ -31,4 +33,4 @@ try{
     $test.uninstall=$true
     Write-Host 'PASS integrated setup, official desktop session, native UI, and recoverable uninstall'
 }catch{$test.error=$_.Exception.Message;throw}
-finally{$socket.Dispose();$test|ConvertTo-Json|Set-Content (Join-Path $output 'integrated-status.json') -Encoding UTF8;if(Test-Path (Join-Path $data 'session-status.json')){Copy-Item -LiteralPath (Join-Path $data 'session-status.json') -Destination (Join-Path $output 'session-status.json')}}
+finally{$socket.Dispose();$test|ConvertTo-Json|Set-Content (Join-Path $output ($prefix+'integrated-status.json')) -Encoding UTF8;if(Test-Path (Join-Path $data 'session-status.json')){Copy-Item -LiteralPath (Join-Path $data 'session-status.json') -Destination (Join-Path $output ($prefix+'session-status.json'))}}
