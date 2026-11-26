@@ -1,0 +1,33 @@
+[CmdletBinding()]
+param([Parameter(Mandatory)][string]$EnginePath,[Parameter(Mandatory)][string]$OfficialExecutable)
+$ErrorActionPreference='Stop'
+if($env:GITHUB_ACTIONS -ne 'true'){throw 'DISPOSABLE_CI_ONLY'}
+$output=Join-Path $PSScriptRoot 'integrated-build'
+& (Join-Path $PSScriptRoot 'Build-Installer.ps1') -Destination $output
+$setup=Join-Path $output 'HONGAI-CAGE-Desktop-0.3.0-pilot.1-Windows-x64-Setup.exe'
+$target='D:\HONGAI-CAGE-Integrated-QA\Desktop'
+$installer=Start-Process -FilePath $setup -ArgumentList ('--install-for-ci "'+$target+'"') -Wait -PassThru
+if($installer.ExitCode -ne 0){throw 'INTEGRATED_INSTALLER_FAILED'}
+$data='D:\HONGAI-CAGE-Integrated-QA\DesktopData'
+$workspace='D:\HONGAI-CAGE-Integrated-QA\Workspace';$null=New-Item -ItemType Directory -Path $workspace -Force
+$socket=[Net.Sockets.Socket]::new([Net.Sockets.AddressFamily]::InterNetwork,[Net.Sockets.SocketType]::Stream,[Net.Sockets.ProtocolType]::Tcp)
+$socket.Bind([Net.IPEndPoint]::new([Net.IPAddress]::Loopback,0));$port=$socket.LocalEndPoint.Port
+$handoff=Join-Path $PSScriptRoot 'integrated-handoff.json'
+[ordered]@{version=1;tool='clash';loopback=[ordered]@{protocol='http';host='127.0.0.1';mixedPort=$port};expectedEgressIp='8.8.8.8';routeId='0123456789abcdef01234567';generatedAt=[datetime]::UtcNow.ToString('o')}|ConvertTo-Json -Depth 5|Set-Content $handoff -Encoding UTF8
+$stop=Join-Path $data 'signals\qa.stop'
+$test=[ordered]@{installer=$false;session=$false;nativeUI=$false;uninstall=$false;loginAttempted=$false;hostNetworkSettingsChanged=$false;customerAccepted=$false}
+try{
+    $test.installer=$true
+    & (Join-Path $target 'Run-Session.ps1') -DataRoot $data -Workspace $workspace -HandoffPath $handoff -StopFile $stop -MaximumSessionSeconds 16 -OfflineAcceptance -OfficialExecutableOverride $OfficialExecutable
+    $state=Get-Content -LiteralPath (Join-Path $data 'session-status.json') -Raw -Encoding UTF8|ConvertFrom-Json
+    if($state.phase -ne 'STOPPED' -or -not $state.officialDesktopStarted){throw 'INTEGRATED_OFFICIAL_SESSION_NOT_ACCEPTED'}
+    $test.session=$true
+    $gui=Start-Process -FilePath (Join-Path $target 'HONGAI-CAGE.exe') -ArgumentList '--ui-smoke-test' -PassThru
+    if(-not $gui.WaitForExit(15000) -or $gui.ExitCode -ne 0){throw 'INTEGRATED_NATIVE_UI_FAILED'}
+    $test.nativeUI=$true
+    & (Join-Path $target 'Uninstall-Cage.ps1') -ConfirmUninstall
+    if(Test-Path $target){throw 'INTEGRATED_UNINSTALL_DID_NOT_MOVE_OWN_APP'}
+    $test.uninstall=$true
+    Write-Host 'PASS integrated setup, official desktop session, native UI, and recoverable uninstall'
+}catch{$test.error=$_.Exception.Message;throw}
+finally{$socket.Dispose();$test|ConvertTo-Json|Set-Content (Join-Path $output 'integrated-status.json') -Encoding UTF8}

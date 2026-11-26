@@ -24,3 +24,6 @@ jobs:
             native-desktop/windows/sandboxie/build/official-desktop-status.json
             native-desktop/windows/sandboxie/build/installer.log
             native-desktop/windows/sandboxie/build/reports/*.txt
+            native-desktop/windows/sandboxie/integrated-build/*Setup.exe
+            native-desktop/windows/sandboxie/integrated-build/*Setup.exe.json
+            native-desktop/windows/sandboxie/integrated-build/integrated-status.json

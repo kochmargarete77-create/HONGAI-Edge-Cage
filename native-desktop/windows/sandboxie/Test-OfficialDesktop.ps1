@@ -48,6 +48,9 @@ try{
     $report.officialKernelBoxMembership='PASS'
     $report.offlineStart='PASS'
     Write-Host "PASS official signed Claude Desktop runs in signed sandbox; processes=$($owned.Count); login=false"
+    & $start ("/box:"+$BoxName) /terminate | Out-Null
+    Start-Sleep -Seconds 2
+    & (Join-Path $PSScriptRoot 'Test-IntegratedPackage.ps1') -EnginePath $EnginePath -OfficialExecutable $executable
 } catch {$report.error=$_.Exception.Message;throw}
 finally{
     & $start ("/box:"+$BoxName) /terminate | Out-Null
