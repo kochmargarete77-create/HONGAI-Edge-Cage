@@ -27,6 +27,9 @@ jobs:
       - name: Test inheritable process boundary without host network changes
         working-directory: native-desktop/macos
         run: python3 process-sandbox/test_process_sandbox.py
+      - name: Official Claude Desktop offline start in process sandbox
+        working-directory: native-desktop/macos
+        run: python3 process-sandbox/test_official_desktop.py
       - name: Save development evidence only
         run: |
           mkdir -p evidence
