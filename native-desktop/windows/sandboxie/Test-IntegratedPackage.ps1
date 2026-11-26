@@ -6,8 +6,9 @@ $output=Join-Path $PSScriptRoot 'integrated-build'
 & (Join-Path $PSScriptRoot 'Build-Installer.ps1') -Destination $output
 $setup=Join-Path $output 'HONGAI-CAGE-Desktop-0.3.0-pilot.1-Windows-x64-Setup.exe'
 $target='D:\HONGAI-CAGE-Integrated-QA\Desktop'
+$env:HONGAI_CAGE_CI_RESULT=Join-Path $output 'installer-result.json'
 $installer=Start-Process -FilePath $setup -ArgumentList ('--install-for-ci "'+$target+'"') -Wait -PassThru
-if($installer.ExitCode -ne 0){throw 'INTEGRATED_INSTALLER_FAILED'}
+if($installer.ExitCode -ne 0){if(Test-Path $env:HONGAI_CAGE_CI_RESULT){Get-Content -LiteralPath $env:HONGAI_CAGE_CI_RESULT -Raw|Write-Host};throw 'INTEGRATED_INSTALLER_FAILED'}
 $data='D:\HONGAI-CAGE-Integrated-QA\DesktopData'
 $workspace='D:\HONGAI-CAGE-Integrated-QA\Workspace';$null=New-Item -ItemType Directory -Path $workspace -Force
 $socket=[Net.Sockets.Socket]::new([Net.Sockets.AddressFamily]::InterNetwork,[Net.Sockets.SocketType]::Stream,[Net.Sockets.ProtocolType]::Tcp)

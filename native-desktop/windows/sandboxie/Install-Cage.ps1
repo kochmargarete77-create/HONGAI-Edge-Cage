@@ -15,7 +15,7 @@ try {
         if(-not $file.StartsWith($PSScriptRoot+'\',[StringComparison]::OrdinalIgnoreCase)-or (Get-FileHash -LiteralPath $file).Hash -ine $hash){throw 'INSTALL_PAYLOAD_VERIFICATION_FAILED'}
     }
     if(@(Get-Process Claude -ErrorAction SilentlyContinue).Count -gt 0){throw 'EXIT_CLAUDE_BEFORE_INSTALL'}
-    if(-not $Destination){$drive=if(Test-Path 'E:\'){'E:'}elseif(Test-Path 'D:\'){'D:'}else{$null};$Destination=if($drive){$drive+'\HONGAI-CAGE\Desktop'}else{Join-Path $env:ProgramFiles 'HONGAI-CAGE\Desktop'}}
+    if(-not $Destination){$drive=$null;foreach($candidate in @('E:\','D:\')){try{$info=[IO.DriveInfo]::new($candidate);if($info.IsReady -and $info.DriveType -eq 'Fixed' -and $info.AvailableFreeSpace -ge 5GB){$drive=$candidate.TrimEnd('\');break}}catch{}};$Destination=if($drive){$drive+'\HONGAI-CAGE\Desktop'}else{Join-Path $env:ProgramFiles 'HONGAI-CAGE\Desktop'}}
     $target=[IO.Path]::GetFullPath($Destination).TrimEnd('\')
     if($target -match '["\r\n*?]' -or $target.Length -lt 8 -or $target.StartsWith('\\')){throw 'INSTALL_PATH_INVALID'}
     $parent=Split-Path $target -Parent;$data=Join-Path $parent 'DesktopData';$core=Join-Path $parent 'Sandboxie-Core'
