@@ -14,6 +14,17 @@ internal static class Fixture {
             else if(mode=="ipv6")result=Connect("::1",port);
             else if(mode=="read-secret"){try{File.ReadAllText(Path.Combine(root,"private","secret.txt"));result=0;}catch{result=13;}}
             else if(mode=="workspace"){File.WriteAllText(Path.Combine(root,"workspace","approved-result.txt"),"owned fixture");result=0;}
+            else if(mode=="policy"){
+                using(var key=Microsoft.Win32.Registry.CurrentUser.CreateSubKey("SOFTWARE\\Policies\\Claude")){
+                    key.SetValue("egressProxyUrl","http://127.0.0.1:"+port,Microsoft.Win32.RegistryValueKind.String);
+                    foreach(string name in new[]{"secureVmFeaturesEnabled","isLocalDevMcpEnabled","isDesktopExtensionEnabled","isDesktopExtensionDirectoryEnabled","isClaudeCodeForDesktopEnabled"})key.SetValue(name,0,Microsoft.Win32.RegistryValueKind.DWord);
+                    key.SetValue("disableAutoUpdates",1,Microsoft.Win32.RegistryValueKind.DWord);
+                }result=0;
+            }
+            else if(mode=="probe-process"){
+                var otherBox=new StringBuilder(34);var otherImage=new StringBuilder(96);var otherSid=new StringBuilder(96);uint otherSession;
+                result=SbieApi_QueryProcess(new IntPtr(port),otherBox,otherImage,otherSid,out otherSession)==0&&otherBox.ToString()==boxName?0:91;
+            }
             else if(mode=="nested"){
                 string secondary=Path.Combine(Path.GetDirectoryName(Process.GetCurrentProcess().MainModule.FileName),"secondary-fixture.exe");
                 string childReport=report+".child";

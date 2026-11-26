@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param()
 $ErrorActionPreference='Stop'
+if($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_OS -ne 'Windows'){throw 'DISPOSABLE_GITHUB_CI_ONLY_DO_NOT_RUN_ON_CUSTOMER_HOST'}
 $root=Join-Path $PSScriptRoot 'build'
 if($root -notmatch '^D:\\'){throw 'CI_PROJECT_DATA_MUST_USE_D_DRIVE'}
 $null=New-Item -ItemType Directory -Path $root -Force
@@ -74,6 +75,7 @@ try{
     $listener.Stop()
     Check-Fixture 'connect' $port 13 'proxy loss leaves sandbox offline'
     Check-Fixture 'nested' $other 13 'proxy loss never opens alternate route for tools'
+    & (Join-Path $PSScriptRoot 'Test-OfficialDesktop.ps1') -EnginePath $install -BoxName $box -Root $root -ProxyPort $port
     [ordered]@{passed=$results.Count;mode='SIGNED_ENGINE_FOUNDATION_ONLY';officialDesktopAccepted=$false;customerAccepted=$false;signer=$signature.SignerCertificate.Subject;hostNetworkSettingsChanged=$false;scope='fresh disposable CI runner only'} | ConvertTo-Json | Set-Content (Join-Path $root 'foundation-status.json') -Encoding UTF8
 } catch {
     $failure=$_.Exception.Message

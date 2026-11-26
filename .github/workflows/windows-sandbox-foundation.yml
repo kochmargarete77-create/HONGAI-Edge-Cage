@@ -21,5 +21,6 @@ jobs:
           name: windows-signed-sandbox-foundation-evidence
           path: |
             native-desktop/windows/sandboxie/build/foundation-status.json
+            native-desktop/windows/sandboxie/build/official-desktop-status.json
             native-desktop/windows/sandboxie/build/installer.log
             native-desktop/windows/sandboxie/build/reports/*.txt
