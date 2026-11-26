@@ -61,6 +61,42 @@ final class SessionBroker {
     deinit {stop()}
 }
 
+func brokerSelfTest() throws {
+    let queue=DispatchQueue(label:"com.hongai.cage.broker-proof"),ready=DispatchSemaphore(value:0)
+    let params=NWParameters.tcp;params.requiredLocalEndpoint = .hostPort(host:"127.0.0.1",port:.any)
+    let upstream=try NWListener(using:params)
+    upstream.stateUpdateHandler={state in if case .ready = state {ready.signal()} }
+    upstream.newConnectionHandler={connection in
+        connection.stateUpdateHandler={state in if case .ready = state {
+            connection.receive(minimumIncompleteLength:1,maximumLength:65_536){data,_,_,_ in
+                connection.send(content:data,completion:.contentProcessed {_ in connection.cancel()})
+            }
+        }}
+        connection.start(queue:queue)
+    }
+    upstream.start(queue:queue);defer{upstream.cancel()}
+    guard ready.wait(timeout:.now()+4) == .success,let port=upstream.port else {throw CageFailure("BROKER_FIXTURE_START_FAILED")}
+    let broker=SessionBroker(upstream:port.rawValue);try broker.start();defer{broker.stop()}
+    func exchange()->Bool {
+        let done=DispatchSemaphore(value:0),lock=NSLock();var matched=false
+        let client=NWConnection(host:"127.0.0.1",port:NWEndpoint.Port(rawValue:broker.port)!,using:.tcp)
+        let content=Data("hongai-owned-fixture".utf8)
+        client.stateUpdateHandler={state in
+            if case .failed = state {done.signal()}
+            if case .ready = state {client.send(content:content,completion:.contentProcessed {error in
+                if error != nil {done.signal();return}
+                client.receive(minimumIncompleteLength:content.count,maximumLength:content.count){data,_,_,_ in lock.lock();matched=(data==content);lock.unlock();done.signal()}
+            })}
+        }
+        client.start(queue:queue);_ = done.wait(timeout:.now()+4);client.cancel();lock.lock();let result=matched;lock.unlock();return result
+    }
+    guard exchange() else {throw CageFailure("BROKER_FORWARD_FAILED")};print("PASS session gateway forwards to selected local proxy")
+    Thread.sleep(forTimeInterval:12.2)
+    guard !exchange() else {throw CageFailure("BROKER_EXPIRED_LEASE_ACCEPTED")};print("PASS expired verification lease rejects new streams")
+    broker.stop()
+    guard !exchange() else {throw CageFailure("BROKER_STOP_ACCEPTED")};print("PASS stopped session gateway has no alternative route")
+}
+
 struct CageFailure: Error, CustomStringConvertible {
     let description: String
     init(_ message: String) { description = message }
@@ -231,10 +267,16 @@ final class CageController: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification:Notification) {stopSession()}
 }
 
-if CommandLine.arguments.contains("--verify-policy") {
+if CommandLine.arguments.contains("--broker-self-test") {
+    do {try brokerSelfTest();exit(0)} catch {fputs("\(error)\n",stderr);exit(1)}
+}
+if CommandLine.arguments.contains("--verify-policy") || CommandLine.arguments.count == 4 && CommandLine.arguments[1] == "--emit-policy" {
     do {
         let home=FileManager.default.homeDirectoryForCurrentUser
-        let policy=try CageRuntime.profile(port:17896,application:URL(fileURLWithPath:"/Applications/Claude.app"),home:home)
+        let port=CommandLine.arguments.count == 4 ? Int(CommandLine.arguments[2]) ?? 0 : 17896
+        guard (1024...65535).contains(port) else {throw CageFailure("INVALID_SESSION_PORT")}
+        let app=CommandLine.arguments.count == 4 ? CommandLine.arguments[3] : "/Applications/Claude.app"
+        let policy=try CageRuntime.profile(port:port,application:URL(fileURLWithPath:app),home:home)
         print(policy)
         exit(0)
     } catch { fputs("\(error)\n",stderr); exit(1) }

@@ -31,6 +31,7 @@ PLIST
 /usr/bin/codesign --verify --strict "$app"
 /usr/bin/lipo -verify_arch arm64 x86_64 "$app/Contents/MacOS/HongAICage"
 "$app/Contents/MacOS/HongAICage" --verify-policy > "$destination/runtime-policy.sb"
+"$app/Contents/MacOS/HongAICage" --broker-self-test
 # Verify that the generated production profile is accepted by the real macOS sandbox parser.
 /usr/bin/sandbox-exec -f "$destination/runtime-policy.sb" /usr/bin/true
 /usr/bin/pkgbuild --component "$app" --install-location /Applications --identifier com.hongai.cage.desktop.pilot --version 0.2.0 "$destination/HONGAI-CAGE-Desktop-macOS-Universal-PILOT.pkg"

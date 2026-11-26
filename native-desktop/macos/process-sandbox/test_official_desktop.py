@@ -72,13 +72,19 @@ def main():
                 '(deny mach-lookup (global-name "com.apple.nsurlsessiond") (global-name "com.apple.lsd.open"))\n'
                 + "".join(f'(deny file-read* file-write* (subpath "{p}"))\n' for p in denied)
             )
+            runtime_app=pathlib.Path(__file__).resolve().parent / "build/HONG AI CAGE Desktop.app"
+            runtime=runtime_app / "Contents/MacOS/HongAICage"
+            helper=runtime_app / "Contents/Helpers/CageSession"
+            if not runtime.exists() or not helper.exists():
+                raise RuntimeError("BUILT_RUNTIME_REQUIRED_FOR_ACCEPTANCE")
+            profile.write_text(run([str(runtime), "--emit-policy", str(port), str(app)]).stdout)
             environment = {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": str(workspace), "TMPDIR": str(workspace),
                            "HTTP_PROXY": f"http://127.0.0.1:{port}", "HTTPS_PROXY": f"http://127.0.0.1:{port}", "NO_PROXY": ""}
             log = (root / "official.log").open("wb")
-            command = ["/usr/bin/sandbox-exec", "-f", str(profile), str(executable),
+            command = [str(helper), "/usr/bin/sandbox-exec", "-f", str(profile), str(executable),
                        f"--user-data-dir={profile_data}", f"--proxy-server=http://127.0.0.1:{port}",
                        "--proxy-bypass-list=<-loopback>", "--disable-quic", "--no-first-run"]
-            process = subprocess.Popen(command, env=environment, cwd=workspace, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+            process = subprocess.Popen(command, env=environment, cwd=workspace, stdout=log, stderr=subprocess.STDOUT)
             time.sleep(8)
             result = process.poll()
             rows = subprocess.run(["/bin/ps", "-axo", "pid=,pgid=,comm="], capture_output=True, text=True, timeout=10).stdout
