@@ -1,0 +1,178 @@
+name: build-hongai-cage-lite-macos
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hongai-cage-lite-macos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            electron_arch: arm64
+            artifact_arch: arm64
+          - runner: macos-15-intel
+            electron_arch: x64
+            artifact_arch: x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout source envelope
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Reconstruct audited Lite source
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/hongai-lite-src.zip"
+          cat source-parts/hongai-lite-src.zip.part* > "$archive"
+          mkdir -p "$RUNNER_TEMP/hongai-lite"
+          /usr/bin/unzip -q "$archive" -d "$RUNNER_TEMP/hongai-lite"
+          test -f "$RUNNER_TEMP/hongai-lite/package-lock.json"
+          test -f "$RUNNER_TEMP/hongai-lite/src/app/main.cjs"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22.22.0
+          cache: npm
+          cache-dependency-path: ${{ runner.temp }}/hongai-lite/package-lock.json
+
+      - name: Install locked dependencies and run tests
+        working-directory: ${{ runner.temp }}/hongai-lite
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --fund=false --audit=false
+          npm test
+
+      - name: Assert native runner architecture
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual=$(/usr/bin/uname -m)
+          case '${{ matrix.electron_arch }}' in
+            arm64) expected=arm64 ;;
+            x64) expected=x86_64 ;;
+            *) exit 1 ;;
+          esac
+          test "$actual" = "$expected"
+
+      - name: Generate native macOS icon
+        working-directory: ${{ runner.temp }}/hongai-lite
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_png='src/app/assets/claude-protected-service-badge-v1.png'
+          iconset='build/icon.iconset'
+          mkdir -p "$iconset"
+          /usr/bin/sips -z 16 16 "$source_png" --out "$iconset/icon_16x16.png" >/dev/null
+          /usr/bin/sips -z 32 32 "$source_png" --out "$iconset/icon_16x16@2x.png" >/dev/null
+          /usr/bin/sips -z 32 32 "$source_png" --out "$iconset/icon_32x32.png" >/dev/null
+          /usr/bin/sips -z 64 64 "$source_png" --out "$iconset/icon_32x32@2x.png" >/dev/null
+          /usr/bin/sips -z 128 128 "$source_png" --out "$iconset/icon_128x128.png" >/dev/null
+          /usr/bin/sips -z 256 256 "$source_png" --out "$iconset/icon_128x128@2x.png" >/dev/null
+          /usr/bin/sips -z 256 256 "$source_png" --out "$iconset/icon_256x256.png" >/dev/null
+          /usr/bin/sips -z 512 512 "$source_png" --out "$iconset/icon_256x256@2x.png" >/dev/null
+          /usr/bin/sips -z 512 512 "$source_png" --out "$iconset/icon_512x512.png" >/dev/null
+          /usr/bin/sips -z 1024 1024 "$source_png" --out "$iconset/icon_512x512@2x.png" >/dev/null
+          /usr/bin/iconutil -c icns "$iconset" -o build/icon.icns
+
+      - name: Build native application directory
+        working-directory: ${{ runner.temp }}/hongai-lite
+        shell: bash
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          set -euo pipefail
+          npx electron-builder --mac dir --${{ matrix.electron_arch }} \
+            -c.mac.notarize=false \
+            -c.dmg.sign=false
+
+      - name: Ad-hoc sign and verify the complete app bundle
+        id: app
+        working-directory: ${{ runner.temp }}/hongai-lite
+        shell: bash
+        run: |
+          set -euo pipefail
+          app=$(find releases -maxdepth 3 -type d -name 'HONG AI CAGE.app' -print -quit)
+          test -n "$app"
+          /usr/bin/codesign --force --deep --sign - --timestamp=none "$app"
+          /usr/bin/codesign --verify --deep --strict --verbose=2 "$app"
+          printf 'app=%s\n' "$app" >> "$GITHUB_OUTPUT"
+
+      - name: Verify Electron security fuses
+        working-directory: ${{ runner.temp }}/hongai-lite
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx @electron/fuses read --app '${{ steps.app.outputs.app }}/Contents/MacOS/HONG AI CAGE' | tee "$RUNNER_TEMP/fuses.txt"
+          grep -q 'RunAsNode is Disabled' "$RUNNER_TEMP/fuses.txt"
+          grep -q 'EnableCookieEncryption is Enabled' "$RUNNER_TEMP/fuses.txt"
+          grep -q 'EnableNodeOptionsEnvironmentVariable is Disabled' "$RUNNER_TEMP/fuses.txt"
+          grep -q 'EnableNodeCliInspectArguments is Disabled' "$RUNNER_TEMP/fuses.txt"
+          grep -q 'EnableEmbeddedAsarIntegrityValidation is Enabled' "$RUNNER_TEMP/fuses.txt"
+          grep -q 'OnlyLoadAppFromAsar is Enabled' "$RUNNER_TEMP/fuses.txt"
+
+      - name: Cold-start smoke test
+        working-directory: ${{ runner.temp }}/hongai-lite
+        shell: bash
+        run: |
+          set -euo pipefail
+          app='${{ steps.app.outputs.app }}'
+          log="$RUNNER_TEMP/hongai-cage-smoke.log"
+          "$app/Contents/MacOS/HONG AI CAGE" >"$log" 2>&1 &
+          pid=$!
+          sleep 8
+          kill -0 "$pid"
+          kill "$pid" || true
+          wait "$pid" || true
+          if grep -Eiq 'fatal|uncaught exception|segmentation fault' "$log"; then
+            cat "$log"
+            exit 1
+          fi
+
+      - name: Create customer DMG and verify mounted app
+        id: dmg
+        working-directory: ${{ runner.temp }}/hongai-lite
+        shell: bash
+        run: |
+          set -euo pipefail
+          app='${{ steps.app.outputs.app }}'
+          stage="$RUNNER_TEMP/dmg-stage"
+          output="$RUNNER_TEMP/HONG-AI-CAGE-0.2.0-macOS-${{ matrix.artifact_arch }}.dmg"
+          mkdir -p "$stage"
+          /usr/bin/ditto "$app" "$stage/HONG AI CAGE.app"
+          ln -s /Applications "$stage/Applications"
+          /usr/bin/hdiutil create -fs HFS+ -volname 'HONG AI CAGE' -srcfolder "$stage" -format UDZO -ov "$output"
+          mount="$RUNNER_TEMP/dmg-mount"
+          mkdir -p "$mount"
+          /usr/bin/hdiutil attach -nobrowse -readonly -mountpoint "$mount" "$output" >/dev/null
+          /usr/bin/codesign --verify --deep --strict --verbose=2 "$mount/HONG AI CAGE.app"
+          /usr/bin/hdiutil detach "$mount" >/dev/null
+          /usr/bin/shasum -a 256 "$output" > "$output.sha256.txt"
+          printf 'path=%s\n' "$output" >> "$GITHUB_OUTPUT"
+
+      - name: Upload tested macOS customer package
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: HONG-AI-CAGE-macOS-${{ matrix.artifact_arch }}-v0.2.0
+          path: |
+            ${{ steps.dmg.outputs.path }}
+            ${{ steps.dmg.outputs.path }}.sha256.txt
+            ${{ runner.temp }}/fuses.txt
+            ${{ runner.temp }}/hongai-cage-smoke.log
+          if-no-files-found: error
+          retention-days: 7
+
