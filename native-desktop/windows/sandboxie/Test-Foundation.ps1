@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param()
+param([ValidateSet('classic','plus')][string]$EngineFlavor='classic')
 $ErrorActionPreference='Stop'
 if($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_OS -ne 'Windows'){throw 'DISPOSABLE_GITHUB_CI_ONLY_DO_NOT_RUN_ON_CUSTOMER_HOST'}
 $root=Join-Path $PSScriptRoot 'build'
@@ -7,16 +7,20 @@ if($root -notmatch '^D:\\'){throw 'CI_PROJECT_DATA_MUST_USE_D_DRIVE'}
 $null=New-Item -ItemType Directory -Path $root -Force
 $env:TEMP=$root;$env:TMP=$root
 if(Get-Service -Name SbieSvc,SbieDrv -ErrorAction SilentlyContinue){throw 'EXISTING_SANDBOXIE_NOT_OWNED_BY_THIS_TEST'}
-$installer=Join-Path $root 'Sandboxie-Plus-x64-v1.19.1.exe'
-Invoke-WebRequest -Uri 'https://github.com/sandboxie-plus/Sandboxie/releases/download/v1.19.1/Sandboxie-Plus-x64-v1.19.1.exe' -OutFile $installer
-if((Get-FileHash $installer -Algorithm SHA256).Hash -ine '443b528766f4e6448632fd94afa7df5d9e1c52e13940db79139d4070da3aa384'){throw 'UPSTREAM_INSTALLER_HASH_MISMATCH'}
+$asset=if($EngineFlavor -eq 'classic'){'Sandboxie-Classic-x64-v5.74.1.exe'}else{'Sandboxie-Plus-x64-v1.19.1.exe'}
+$expectedHash=if($EngineFlavor -eq 'classic'){'4f97400854b7b984dedc5bd057b9f6886eb13a2cc29ed38b0094ebbe5483d57e'}else{'443b528766f4e6448632fd94afa7df5d9e1c52e13940db79139d4070da3aa384'}
+$installer=Join-Path $root $asset
+Invoke-WebRequest -Uri ('https://github.com/sandboxie-plus/Sandboxie/releases/download/v1.19.1/'+$asset) -OutFile $installer
+if((Get-FileHash $installer -Algorithm SHA256).Hash -ine $expectedHash){throw 'UPSTREAM_INSTALLER_HASH_MISMATCH'}
 $signature=Get-AuthenticodeSignature -LiteralPath $installer
 if($signature.Status -ne 'Valid'){throw 'UPSTREAM_INSTALLER_SIGNATURE_INVALID'}
 $install='D:\HONGAI-Sandboxie-CI'
 if(Test-Path $install){throw 'TEST_INSTALL_TARGET_EXISTS'}
 $arguments='/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /NOICONS /MERGETASKS=!DesktopIcon,!AutoStartEntry,!AddRunSandboxed /DIR="'+$install+'" /LOG="'+(Join-Path $root 'installer.log')+'"'
+if($EngineFlavor -eq 'classic'){$arguments='/S /D='+$install}
 $p=Start-Process -FilePath $installer -ArgumentList $arguments -Wait -PassThru
 if($p.ExitCode -ne 0){throw "SIGNED_ENGINE_INSTALL_FAILED_OR_REBOOT_REQUIRED $($p.ExitCode)"}
+Get-CimInstance Win32_Process -Filter "Name='SbieCtrl.exe'" -ErrorAction SilentlyContinue|Where-Object {$_.ExecutablePath -like ($install+'\*')}|ForEach-Object {Stop-Process -Id $_.ProcessId}
 $ini=Join-Path $install 'SbieIni.exe';$start=Join-Path $install 'Start.exe'
 $box='HONGAI_CI_Fixture';$results=@();$listener=$null;$alternate=$null;$six=$null
 function Set-Box([string]$section,[string]$key,[string]$value,[switch]$Append){
@@ -90,5 +94,7 @@ try{
     if($listener){$listener.Stop()};if($alternate){$alternate.Stop()};if($six){$six.Stop()}
     if(Test-Path $start){& $start ("/box:"+$box) /terminate | Out-Null}
     $uninstall=Join-Path $install 'unins000.exe'
-    if(Test-Path $uninstall){$null=Start-Process -FilePath $uninstall -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Wait -PassThru}
+    $uninstallArgs='/VERYSILENT /SUPPRESSMSGBOXES /NORESTART'
+    if($EngineFlavor -eq 'classic'){$uninstall=$installer;$uninstallArgs='/remove /S'}
+    if(Test-Path $uninstall){$null=Start-Process -FilePath $uninstall -ArgumentList $uninstallArgs -Wait -PassThru}
 }
