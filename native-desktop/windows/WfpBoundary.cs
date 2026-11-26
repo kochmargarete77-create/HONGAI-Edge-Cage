@@ -60,6 +60,7 @@ namespace HongAi.NativeBoundary {
         [DllImport("fwpuclnt.dll", CharSet=CharSet.Unicode)] internal static extern uint FwpmSubLayerAdd0(IntPtr engine, ref Sublayer sublayer, IntPtr sd);
         [DllImport("fwpuclnt.dll", CharSet=CharSet.Unicode)] internal static extern uint FwpmFilterAdd0(IntPtr engine, ref Filter filter, IntPtr sd, out ulong id);
         [DllImport("fwpuclnt.dll")] internal static extern uint FwpmFilterDeleteByKey0(IntPtr engine, ref Guid key);
+        [DllImport("fwpuclnt.dll")] internal static extern uint FwpmFilterGetByKey0(IntPtr engine, ref Guid key, out IntPtr filter);
         [DllImport("fwpuclnt.dll")] internal static extern uint FwpmSubLayerDeleteByKey0(IntPtr engine, ref Guid key);
         [DllImport("fwpuclnt.dll", CharSet=CharSet.Unicode)] internal static extern uint FwpmGetAppIdFromFileName0(string filename, out IntPtr blob);
         [DllImport("fwpuclnt.dll")] internal static extern void FwpmFreeMemory0(ref IntPtr memory);

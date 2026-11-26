@@ -10,7 +10,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [macos-15, macos-15-intel]
+        runner: [macos-15, macos-15-intel, macos-26, macos-26-intel]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
     steps:
@@ -24,6 +24,9 @@ jobs:
       - name: Compile Network Extension adapter for Intel
         working-directory: native-desktop/macos
         run: swift build --arch x86_64 --target HongAIContentFilter
+      - name: Test inheritable process boundary without host network changes
+        working-directory: native-desktop/macos
+        run: python3 process-sandbox/test_process_sandbox.py
       - name: Save development evidence only
         run: |
           mkdir -p evidence
@@ -32,4 +35,3 @@ jobs:
         with:
           name: macOS-native-boundary-development-evidence-${{ matrix.runner }}
           path: evidence
-
