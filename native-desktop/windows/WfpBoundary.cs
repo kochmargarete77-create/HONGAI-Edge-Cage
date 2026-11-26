@@ -59,6 +59,8 @@ namespace HongAi.NativeBoundary {
         [DllImport("fwpuclnt.dll")] internal static extern uint FwpmTransactionAbort0(IntPtr engine);
         [DllImport("fwpuclnt.dll", CharSet=CharSet.Unicode)] internal static extern uint FwpmSubLayerAdd0(IntPtr engine, ref Sublayer sublayer, IntPtr sd);
         [DllImport("fwpuclnt.dll", CharSet=CharSet.Unicode)] internal static extern uint FwpmFilterAdd0(IntPtr engine, ref Filter filter, IntPtr sd, out ulong id);
+        [DllImport("fwpuclnt.dll")] internal static extern uint FwpmFilterDeleteByKey0(IntPtr engine, ref Guid key);
+        [DllImport("fwpuclnt.dll")] internal static extern uint FwpmSubLayerDeleteByKey0(IntPtr engine, ref Guid key);
         [DllImport("fwpuclnt.dll", CharSet=CharSet.Unicode)] internal static extern uint FwpmGetAppIdFromFileName0(string filename, out IntPtr blob);
         [DllImport("fwpuclnt.dll")] internal static extern void FwpmFreeMemory0(ref IntPtr memory);
         internal static void Check(uint code, string stage) { if(code != 0) throw new Win32Exception(unchecked((int)code), stage+" error=0x"+code.ToString("X8")); }
@@ -66,14 +68,22 @@ namespace HongAi.NativeBoundary {
 
     internal sealed class SelfTestBoundary : IDisposable {
         private IntPtr engine;
-        private readonly Guid sublayerKey = Guid.NewGuid();
-        internal SelfTestBoundary(string executable, ushort proxyPort) {
+        private readonly Guid sublayerKey;
+        private readonly bool persistent;
+        private readonly List<Guid> filterKeys = new List<Guid>();
+        private static readonly Guid TestSublayer = new Guid("814b7c40-9a43-4c59-8c17-b3156cfbe8f5");
+        private static readonly Guid[] TestFilters = new [] {
+            new Guid("14404750-d4e1-48c7-9d0e-a3f4d30f5a01"), new Guid("14404750-d4e1-48c7-9d0e-a3f4d30f5a02"),
+            new Guid("14404750-d4e1-48c7-9d0e-a3f4d30f5a03"), new Guid("14404750-d4e1-48c7-9d0e-a3f4d30f5a04")
+        };
+        internal SelfTestBoundary(string executable, ushort proxyPort, bool persist) {
+            persistent=persist; sublayerKey=persist ? TestSublayer : Guid.NewGuid();
             string self = Process.GetCurrentProcess().MainModule.FileName;
             if(!String.Equals(Path.GetFullPath(executable), Path.GetFullPath(self), StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("SELF_TEST_EXACT_IDENTITY_ONLY");
             if(proxyPort < 1024) throw new ArgumentException("HIGH_LOOPBACK_PORT_REQUIRED");
             if(!new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator)) throw new InvalidOperationException("ADMIN_REQUIRED_FOR_ISOLATED_WFP_SELF_TEST");
             Native.Session session = new Native.Session();
-            session.Key = Guid.NewGuid(); session.Flags = 1; // Dynamic session: every self-test rule disappears on close/crash.
+            session.Key = Guid.NewGuid(); session.Flags = persist ? 0U : 1U;
             session.Display.Name="HONG AI isolated WFP self-test"; session.WaitMs=3000;
             Native.Check(Native.FwpmEngineOpen0(null, 10, IntPtr.Zero, ref session, out engine),"open");
             bool transaction=false;
@@ -81,7 +91,7 @@ namespace HongAi.NativeBoundary {
             try {
                 Native.Check(Native.FwpmGetAppIdFromFileName0(self,out appId),"app-id");
                 Native.Check(Native.FwpmTransactionBegin0(engine,0),"begin"); transaction=true;
-                Native.Sublayer sub = new Native.Sublayer(); sub.Key=sublayerKey; sub.Weight=0x7000;
+                Native.Sublayer sub = new Native.Sublayer(); sub.Key=sublayerKey; sub.Weight=0x7000; sub.Flags=persist ? 1U : 0U;
                 sub.Display.Name="HONG AI test binary only";
                 Native.Check(Native.FwpmSubLayerAdd0(engine,ref sub,IntPtr.Zero),"sublayer");
                 Native.Condition app = Condition(Native.AppId,0,12,appId,0);
@@ -108,14 +118,39 @@ namespace HongAi.NativeBoundary {
             int size=Marshal.SizeOf(typeof(Native.Condition)); IntPtr memory=Marshal.AllocHGlobal(size*conditions.Length);
             try {
                 for(int i=0;i<conditions.Length;i++) Marshal.StructureToPtr(conditions[i],IntPtr.Add(memory,i*size),false);
-                Native.Filter filter = new Native.Filter(); filter.Key=Guid.NewGuid(); filter.Display.Name="HONGAI self-test "+name;
+                Native.Filter filter = new Native.Filter(); filter.Key=persistent ? TestFilters[filterKeys.Count] : Guid.NewGuid(); filter.Flags=persistent ? 1U : 0U;
+                filter.Display.Name="HONGAI self-test "+name;
                 filter.Layer=layer; filter.Sublayer=sublayerKey; filter.Count=(uint)conditions.Length; filter.Conditions=memory;
                 filter.Action.Type=0x1001; // FWP_ACTION_BLOCK
                 filter.Weight.Type=1; filter.Weight.Data.U8=15;
                 ulong id; Native.Check(Native.FwpmFilterAdd0(engine,ref filter,IntPtr.Zero,out id),name);
+                filterKeys.Add(filter.Key);
             } finally { Marshal.FreeHGlobal(memory); }
         }
-        public void Dispose() { if(engine != IntPtr.Zero) { Native.FwpmEngineClose0(engine); engine=IntPtr.Zero; } }
+        internal void CloseEngineRetainingSelfTestRules() {
+            if(!persistent) throw new InvalidOperationException("PERSISTENT_TEST_ONLY");
+            if(engine!=IntPtr.Zero) { Native.Check(Native.FwpmEngineClose0(engine),"close-test-controller"); engine=IntPtr.Zero; }
+        }
+        internal static void RollbackPersistentTest() {
+            if(!new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator)) throw new InvalidOperationException("ADMIN_REQUIRED_FOR_TEST_ROLLBACK");
+            Native.Session session=new Native.Session(); session.Key=Guid.NewGuid(); session.Display.Name="HONGAI exact test-rule recovery";
+            IntPtr recovery; Native.Check(Native.FwpmEngineOpen0(null,10,IntPtr.Zero,ref session,out recovery),"open-recovery");
+            bool transaction=false;
+            try {
+                Native.Check(Native.FwpmTransactionBegin0(recovery,0),"begin-recovery"); transaction=true;
+                foreach(Guid item in TestFilters) {
+                    Guid key=item; uint code=Native.FwpmFilterDeleteByKey0(recovery,ref key);
+                    if(code!=0 && code!=0x80320003) Native.Check(code,"delete-own-test-filter");
+                }
+                Guid sub=TestSublayer; uint subCode=Native.FwpmSubLayerDeleteByKey0(recovery,ref sub);
+                if(subCode!=0 && subCode!=0x80320007) Native.Check(subCode,"delete-own-test-sublayer");
+                Native.Check(Native.FwpmTransactionCommit0(recovery),"commit-recovery"); transaction=false;
+            } finally { if(transaction) Native.FwpmTransactionAbort0(recovery); Native.FwpmEngineClose0(recovery); }
+        }
+        public void Dispose() {
+            if(engine != IntPtr.Zero) { Native.FwpmEngineClose0(engine); engine=IntPtr.Zero; }
+            if(persistent) RollbackPersistentTest();
+        }
     }
 
     internal static class Program {
@@ -146,7 +181,7 @@ namespace HongAi.NativeBoundary {
             finally { Native.FwpmFreeMemory0(ref appId); }
             Console.WriteLine("ABI_TEST_PASSED checks="+checks+" network_changes=0"); return 0;
         }
-        private static int KernelTest() {
+        private static int KernelTest(bool persistent) {
             if(!new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator)) {
                 Console.WriteLine("BLOCKED_ADMIN_REQUIRED network_changes=0"); return 77;
             }
@@ -163,16 +198,22 @@ namespace HongAi.NativeBoundary {
                 Assert(Connect(IPAddress.Loopback,otherPort),"baseline alternate loopback port");
                 Assert(Connect(IPAddress.Parse("127.0.0.2"),port),"baseline alternate loopback address");
                 if(ipv6!=null) Assert(Connect(IPAddress.IPv6Loopback,port),"baseline IPv6 loopback");
-                using(SelfTestBoundary boundary=new SelfTestBoundary(Process.GetCurrentProcess().MainModule.FileName,checked((ushort)port))) {
+                using(SelfTestBoundary boundary=new SelfTestBoundary(Process.GetCurrentProcess().MainModule.FileName,checked((ushort)port),persistent)) {
                     Assert(Connect(IPAddress.Loopback,port),"selected TCP proxy remains reachable");
                     Assert(!Connect(IPAddress.Loopback,otherPort),"other port blocked in kernel");
                     Assert(!Connect(IPAddress.Parse("127.0.0.2"),port),"other address blocked in kernel");
                     if(ipv6!=null) Assert(!Connect(IPAddress.IPv6Loopback,port),"IPv6 bypass blocked in kernel");
+                    if(persistent) {
+                        boundary.CloseEngineRetainingSelfTestRules();
+                        Assert(Connect(IPAddress.Loopback,port),"pinned loopback remains reachable after controller engine closes");
+                        Assert(!Connect(IPAddress.Loopback,otherPort),"persistent block survives controller engine closure");
+                        Assert(!Connect(IPAddress.Parse("127.0.0.2"),port),"persistent address block survives controller engine closure");
+                    }
                     allowed.Stop(); Assert(!Connect(IPAddress.Loopback,port),"proxy stopped gives no connection");
                     Assert(!Connect(IPAddress.Loopback,otherPort),"proxy loss never opens alternate route");
                 }
                 Assert(Connect(IPAddress.Loopback,otherPort),"exact self-test rules removed on session close");
-                Console.WriteLine("KERNEL_SELFTEST_PASSED checks="+checks+" scope=own_test_binary customer_acceptance=false"); return 0;
+                Console.WriteLine("KERNEL_SELFTEST_PASSED checks="+checks+" persistent_test="+persistent+" scope=own_test_binary customer_acceptance=false"); return 0;
             } finally {
                 allowed.Stop(); other.Stop(); if(address!=null) address.Stop(); if(ipv6!=null) ipv6.Stop();
             }
@@ -180,8 +221,10 @@ namespace HongAi.NativeBoundary {
         internal static int Main(string[] args) {
             try {
                 if(args.Length==1 && args[0]=="--abi-test") return AbiTest();
-                if(args.Length==1 && args[0]=="--self-test") return KernelTest();
-                Console.WriteLine("HONG AI WFP isolated development test: --abi-test or --self-test. No customer install command exists."); return 64;
+                if(args.Length==1 && args[0]=="--self-test") return KernelTest(false);
+                if(args.Length==1 && args[0]=="--persistent-self-test") return KernelTest(true);
+                if(args.Length==1 && args[0]=="--rollback-self-test") { SelfTestBoundary.RollbackPersistentTest(); Console.WriteLine("OWN_TEST_RULES_REMOVED"); return 0; }
+                Console.WriteLine("HONG AI WFP development: --abi-test, --self-test, --persistent-self-test, --rollback-self-test. No customer install command exists."); return 64;
             } catch(Exception ex) { Console.Error.WriteLine(ex.Message); return 1; }
         }
     }

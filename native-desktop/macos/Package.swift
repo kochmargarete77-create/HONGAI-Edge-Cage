@@ -6,7 +6,7 @@ let package = Package(
     products: [.library(name: "GuardPolicy", targets: ["GuardPolicy"]), .library(name: "HongAIContentFilter", targets: ["HongAIContentFilter"])],
     targets: [
         .target(name: "GuardPolicy"),
-        .target(name: "HongAIContentFilter", dependencies: ["GuardPolicy"], linkerSettings: [.linkedFramework("NetworkExtension"), .linkedFramework("Network")]),
+        .target(name: "HongAIContentFilter", dependencies: ["GuardPolicy"], linkerSettings: [.linkedFramework("NetworkExtension"), .linkedFramework("Network"), .linkedFramework("Security")]),
         .testTarget(name: "GuardPolicyTests", dependencies: ["GuardPolicy"])
     ]
 )
