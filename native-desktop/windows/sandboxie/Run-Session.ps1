@@ -43,7 +43,7 @@ function Invoke-Engine([string]$File,[string[]]$Arguments,[int]$Timeout=12000){
     $quoted=@($Arguments|ForEach-Object {if($_ -match '["\r\n]'){throw 'UNSAFE_ENGINE_ARGUMENT'};'"'+($_ -replace '(\\+)$','$1$1')+'"'}) -join ' '
     $info=[Diagnostics.ProcessStartInfo]::new($File,$quoted);$info.UseShellExecute=$false;$info.CreateNoWindow=$true;$info.RedirectStandardOutput=$true;$info.RedirectStandardError=$true
     $worker=[Diagnostics.Process]::Start($info)
-    try{$stdout=$worker.StandardOutput.ReadToEndAsync();$stderr=$worker.StandardError.ReadToEndAsync();if(-not $worker.WaitForExit($Timeout)){$worker.Kill();throw 'ENGINE_COMMAND_TIMEOUT'};$output=$stdout.GetAwaiter().GetResult();$null=$stderr.GetAwaiter().GetResult();if($worker.ExitCode -ne 0){throw ('ENGINE_COMMAND_FAILED '+$worker.ExitCode)};return $output.Trim()}finally{$worker.Dispose()}
+    try{$stdout=$worker.StandardOutput.ReadToEndAsync();$stderr=$worker.StandardError.ReadToEndAsync();if(-not $worker.WaitForExit($Timeout)){$worker.Kill();throw ('ENGINE_COMMAND_TIMEOUT '+[IO.Path]::GetFileName($File)+' '+($Arguments -join ' '))};$output=$stdout.GetAwaiter().GetResult();$null=$stderr.GetAwaiter().GetResult();if($worker.ExitCode -ne 0){throw ('ENGINE_COMMAND_FAILED '+$worker.ExitCode+' '+[IO.Path]::GetFileName($File)+' '+($Arguments -join ' '))};return $output.Trim()}finally{$worker.Dispose()}
 }
 function Read-Setting([string]$Section,[string]$Key){Invoke-Engine $ini @('query',$Section,$Key)}
 function Set-Setting([string]$Section,[string]$Key,[string]$Value,[switch]$Append){$operation=if($Append){'append'}else{'set'};$null=Invoke-Engine $ini @($operation,$Section,$Key,$Value)}

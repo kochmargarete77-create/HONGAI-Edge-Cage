@@ -28,4 +28,4 @@ jobs:
             native-desktop/windows/sandboxie/integrated-build/*Setup.exe.json
             native-desktop/windows/sandboxie/integrated-build/integrated-status.json
             native-desktop/windows/sandboxie/integrated-build/installer-result.json
-            D:\HONGAI-CAGE-Integrated-QA\DesktopData\session-status.json
+            native-desktop/windows/sandboxie/integrated-build/session-status.json

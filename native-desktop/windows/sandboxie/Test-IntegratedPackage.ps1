@@ -31,4 +31,4 @@ try{
     $test.uninstall=$true
     Write-Host 'PASS integrated setup, official desktop session, native UI, and recoverable uninstall'
 }catch{$test.error=$_.Exception.Message;throw}
-finally{$socket.Dispose();$test|ConvertTo-Json|Set-Content (Join-Path $output 'integrated-status.json') -Encoding UTF8}
+finally{$socket.Dispose();$test|ConvertTo-Json|Set-Content (Join-Path $output 'integrated-status.json') -Encoding UTF8;if(Test-Path (Join-Path $data 'session-status.json')){Copy-Item -LiteralPath (Join-Path $data 'session-status.json') -Destination (Join-Path $output 'session-status.json')}}
