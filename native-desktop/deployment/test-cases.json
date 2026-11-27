@@ -1,0 +1,24 @@
+{
+  "request":{"schema":"hongai.agent-deployment-request.v1","caseId":"HA-TEST-001","environmentReport":"E:\\Fixture\\report.json","handoffFile":"E:\\Fixture\\clash-handoff.json","workspace":"E:\\Fixture\\Project"},
+  "report":{"schema":"HONGAI-READINESS-RESULT-2.1","case_id":"HA-TEST-001","phase":"FINAL","desktop_stage":"PREDEPLOY","readiness_score":100,"ready_for_handoff":true,"host_ready_for_stage2":true,"login_attempted":false,"source_evidence_complete":true,"local_evidence_complete":true,"failed_hard_gates":[]},
+  "handoff":{"version":1,"tool":"clash","loopback":{"protocol":"http","host":"127.0.0.1","mixedPort":17896},"expectedEgressIp":"8.8.8.8","routeId":"0123456789abcdef01234567","generatedAt":"TEST_NOW"},
+  "cases":[
+    {"name":"valid_predeploy_can_plan_not_accept","expected":"OK"},
+    {"name":"wrong_customer_is_blocked","report":{"case_id":"OTHER-CASE"},"expected":"NEED_MATCHING_FINAL_PREDEPLOY_REPORT"},
+    {"name":"retest_cannot_replace_final","report":{"phase":"RETEST"},"expected":"NEED_MATCHING_FINAL_PREDEPLOY_REPORT"},
+    {"name":"postdeploy_not_initial_environment_evidence","report":{"desktop_stage":"POSTDEPLOY"},"expected":"NEED_MATCHING_FINAL_PREDEPLOY_REPORT"},
+    {"name":"score_99_cannot_deploy","report":{"readiness_score":99},"expected":"ENVIRONMENT_SCORE_MUST_BE_NUMERIC_100"},
+    {"name":"score_string_is_not_accepted","report":{"readiness_score":"100"},"expected":"ENVIRONMENT_SCORE_MUST_BE_NUMERIC_100"},
+    {"name":"boolean_string_is_not_accepted","report":{"host_ready_for_stage2":"true"},"expected":"ENVIRONMENT_EVIDENCE_NOT_ACCEPTED"},
+    {"name":"missing_source_evidence_cannot_deploy","report":{"source_evidence_complete":false},"expected":"ENVIRONMENT_EVIDENCE_NOT_ACCEPTED"},
+    {"name":"login_attempted_cannot_deploy","report":{"login_attempted":true},"expected":"ENVIRONMENT_HARD_GATE_NOT_ACCEPTED"},
+    {"name":"hard_gate_failure_cannot_be_hidden_by_100","report":{"failed_hard_gates":["H04"]},"expected":"ENVIRONMENT_HARD_GATE_NOT_ACCEPTED"},
+    {"name":"null_gates_are_not_empty_evidence","report":{"failed_hard_gates":null},"expected":"ENVIRONMENT_HARD_GATE_NOT_ACCEPTED"},
+    {"name":"credentials_are_not_deployment_inputs","request":{"password":"DO_NOT_SEND_SECRETS"},"expected":"INVALID_REQUEST_SCHEMA_OR_UNEXPECTED_FIELD"},
+    {"name":"subscription_is_not_handoff","handoff":{"password":"DO_NOT_SEND_SECRETS"},"expected":"INVALID_HANDOFF_FIELDS_NO_SUBSCRIPTIONS_OR_SECRETS"},
+    {"name":"remote_proxy_is_not_local_handoff","handoff":{"loopback":{"protocol":"http","host":"8.8.8.8","mixedPort":17896}},"expected":"INVALID_HANDOFF_VALUES"},
+    {"name":"private_ip_is_not_final_public_exit","handoff":{"expectedEgressIp":"192.168.1.1"},"expected":"INVALID_PUBLIC_IPV4"},
+    {"name":"stale_handoff_requires_refresh_not_reinstall","handoff":{"generatedAt":"TEST_OLD"},"expected":"OK_REFRESH"},
+    {"name":"future_handoff_is_invalid","handoff":{"generatedAt":"TEST_FUTURE"},"expected":"INVALID_HANDOFF_TIME"}
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "schema":"hongai.agent-deployment-request.v1",
+  "caseId":"FILL_CASE_ID",
+  "environmentReport":"FILL_ABSOLUTE_PATH_TO_FINAL_PREDEPLOY_RESULT_JSON",
+  "handoffFile":"FILL_ABSOLUTE_PATH_TO_CLASH_HANDOFF_JSON",
+  "workspace":"FILL_ABSOLUTE_PATH_TO_APPROVED_PROJECT_FOLDER"
+}

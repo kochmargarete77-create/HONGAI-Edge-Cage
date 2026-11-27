@@ -1,0 +1,45 @@
+name: Agent deployment coordinator checks
+on:
+  push:
+    branches: [native-desktop-development]
+    paths: ['native-desktop/deployment/**', '.github/workflows/agent-deployment.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [windows-2022, windows-2025]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Fetch exact previously tested installer for hash and plan checks
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download 45941872330 --repo ${{ github.repository }} --name windows-signed-sandbox-foundation-evidence-windows-2022 --dir "$env:RUNNER_TEMP/reference"
+      - name: Check shared contract, native PowerShell and real-package read-only plan
+        shell: powershell
+        run: |
+          node native-desktop/deployment/test-contract.js
+          python native-desktop/deployment/test-coordinators.py "$env:RUNNER_TEMP/reference"
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-15-intel, macos-26, macos-26-intel]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Fetch exact previously tested installer for hash and plan checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download 45941872352 --repo ${{ github.repository }} --name macOS-desktop-pilot-macos-15 --dir "$RUNNER_TEMP/reference"
+      - name: Check shared contract and real-package native JXA plan
+        run: |
+          node native-desktop/deployment/test-contract.js
+          bash -n native-desktop/deployment/Start-Deployment-Mac.command
+          python3 native-desktop/deployment/test-coordinators.py "$RUNNER_TEMP/reference"
