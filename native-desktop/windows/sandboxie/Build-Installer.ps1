@@ -10,7 +10,7 @@ Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Uninstall-Cage.ps1') -Destinati
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Install-Cage.ps1') -Destination $stage
 $vendor=Join-Path $stage 'vendor';$null=New-Item -ItemType Directory -Path $vendor
 $installer=Join-Path $vendor 'Sandboxie-Classic-x64-v5.74.1.exe'
-Invoke-WebRequest -Uri 'https://github.com/sandboxie-plus/Sandboxie/releases/download/v1.19.1/Sandboxie-Classic-x64-v5.74.1.exe' -OutFile $installer
+Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/sandboxie-plus/Sandboxie/releases/download/v1.19.1/Sandboxie-Classic-x64-v5.74.1.exe' -OutFile $installer
 if((Get-FileHash $installer).Hash -ine '4F97400854B7B984DEDC5BD057B9F6886EB13A2CC29ED38B0094EBBE5483D57E'){throw 'CLASSIC_COMPONENT_HASH_MISMATCH'}
 if((Get-AuthenticodeSignature $installer).Status -ne 'Valid'){throw 'CLASSIC_COMPONENT_SIGNATURE_INVALID'}
 $licenses=Join-Path $runtime 'licenses';$null=New-Item -ItemType Directory -Path $licenses

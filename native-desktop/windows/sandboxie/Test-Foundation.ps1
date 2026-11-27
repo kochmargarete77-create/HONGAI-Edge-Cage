@@ -10,7 +10,7 @@ if(Get-Service -Name SbieSvc,SbieDrv -ErrorAction SilentlyContinue){throw 'EXIST
 $asset=if($EngineFlavor -eq 'classic'){'Sandboxie-Classic-x64-v5.74.1.exe'}else{'Sandboxie-Plus-x64-v1.19.1.exe'}
 $expectedHash=if($EngineFlavor -eq 'classic'){'4f97400854b7b984dedc5bd057b9f6886eb13a2cc29ed38b0094ebbe5483d57e'}else{'443b528766f4e6448632fd94afa7df5d9e1c52e13940db79139d4070da3aa384'}
 $installer=Join-Path $root $asset
-Invoke-WebRequest -Uri ('https://github.com/sandboxie-plus/Sandboxie/releases/download/v1.19.1/'+$asset) -OutFile $installer
+Invoke-WebRequest -UseBasicParsing -Uri ('https://github.com/sandboxie-plus/Sandboxie/releases/download/v1.19.1/'+$asset) -OutFile $installer
 if((Get-FileHash $installer -Algorithm SHA256).Hash -ine $expectedHash){throw 'UPSTREAM_INSTALLER_HASH_MISMATCH'}
 $signature=Get-AuthenticodeSignature -LiteralPath $installer
 if($signature.Status -ne 'Valid'){throw 'UPSTREAM_INSTALLER_SIGNATURE_INVALID'}

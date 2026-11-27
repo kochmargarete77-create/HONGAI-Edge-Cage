@@ -3,7 +3,7 @@ param([Parameter(Mandatory)][string]$EnginePath,[Parameter(Mandatory)][string]$B
 $ErrorActionPreference='Stop'
 if($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_OS -ne 'Windows'){throw 'DISPOSABLE_GITHUB_CI_ONLY'}
 $msix=Join-Path $Root 'Claude-official.msix'
-Invoke-WebRequest -Uri 'https://downloads.claude.ai/releases/win32/x64/6.28899.6/Claude-2f5fc59b2d1c672dd9dced86720c50f48cca0cf9.msix' -OutFile $msix
+Invoke-WebRequest -UseBasicParsing -Uri 'https://downloads.claude.ai/releases/win32/x64/6.28899.6/Claude-2f5fc59b2d1c672dd9dced86720c50f48cca0cf9.msix' -OutFile $msix
 if((Get-FileHash $msix -Algorithm SHA256).Hash -ine 'D95045A5354F2058FC380B5F1400AD3B66C841692644CB4C0C70CA3D4B6CCD5A'){throw 'OFFICIAL_MSIX_HASH_MISMATCH'}
 $unpacked=Join-Path $Root 'official-unpacked'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
