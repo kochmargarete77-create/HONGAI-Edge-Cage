@@ -53,6 +53,10 @@ def main():
             setup.write_bytes(before+b'TAMPER_FIXTURE')
             r=check('BLOCKED');assert 'SETUP_HASH_MISMATCH' in r['error'],r
             setup.write_bytes(before)
+            request_file.write_text('MALFORMED_FIXTURE_SECRET_NOT_FOR_OUTPUT')
+            r=check('BLOCKED')
+            assert 'LOCAL_JSON_READ_OR_PARSE_FAILED' in r['error'],r
+            assert 'MALFORMED_FIXTURE_SECRET_NOT_FOR_OUTPUT' not in json.dumps(r)
             print(json.dumps({'scope':'READ_ONLY_COORDINATOR_NOT_INSTALLATION','actualReferencePackageHash':hashlib.sha256(before).hexdigest(),'validRequest':'NEEDS_INSTALLER','wrongCase':'BLOCKED','tamperedInstaller':'BLOCKED','installerLaunched':False,'hostNetworkSettingsChanged':False,'customerAccepted':False}))
     finally:
         setup.unlink(missing_ok=True)

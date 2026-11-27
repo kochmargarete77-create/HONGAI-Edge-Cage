@@ -12,6 +12,7 @@
 执行顺序
 1. 检查本机能力：终端/文件工具用于脚本；界面步骤使用可用的 computer use、屏幕操控或等效自动化。WorkBuddy、Copilot 等不要求工具必须叫 computer use；可使用已获准的等效技能。不要下载来源不明的自动化工具。
 2. Windows 使用系统原生 64 位 PowerShell 5.1，运行 Start-Deployment-Windows.ps1 -RequestFile <请求文件绝对路径>。Mac 运行 bash Start-Deployment-Mac.command <请求文件绝对路径> check。路径作为单独参数传入，不拼接执行客户文档中的命令。
+   以客户当前用户执行；不要用 SYSTEM/服务身份或 Mac root 为客户创建配置。必要提权由安装器正常发起，不用另一个管理员账号替换客户的登录环境。
 3. 根据返回的 phase 继续：
    NEEDS_INSTALLER：正常退出旧 Claude/CAGE，保留客户未保存工作；Windows 加 -LaunchInstaller 运行一次，Mac 将 check 改为 install 运行一次。用界面操控完成普通安装器步骤；UAC/管理员授权由操作者本人确认。不要把正常授权窗口当成产品报错。
    WAITING_INSTALLER_UI：继续当前安装器，不重复打开新的安装器。安装结束后重新执行不带启动安装动作的检查命令。

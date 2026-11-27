@@ -13,7 +13,7 @@ function hongaiDeploymentContract(request,report,handoff) {
     if(!keys(handoff,['version','tool','loopback','expectedEgressIp','routeId','generatedAt'])) fail('INVALID_HANDOFF_FIELDS_NO_SUBSCRIPTIONS_OR_SECRETS');
     if(!keys(handoff.loopback,['protocol','host','mixedPort'])) fail('INVALID_LOOPBACK_FIELDS');
     var p=handoff.loopback.mixedPort;
-    if(handoff.version!==1 || handoff.tool!=='clash' || handoff.loopback.host!=='127.0.0.1' || handoff.loopback.protocol!=='http' || typeof p!=='number' || p%1 || p<1024 || p>65535 || !/^[a-f0-9]{24}$/.test(handoff.routeId)) fail('INVALID_HANDOFF_VALUES');
+    if(handoff.version!==1 || handoff.tool!=='clash' || handoff.loopback.host!=='127.0.0.1' || handoff.loopback.protocol!=='http' || typeof p!=='number' || p%1 || p<1024 || p>65535 || typeof handoff.routeId!=='string' || !/^[a-f0-9]{24}$/.test(handoff.routeId)) fail('INVALID_HANDOFF_VALUES');
     if(typeof handoff.expectedEgressIp!=='string' || !/^\d{1,3}(\.\d{1,3}){3}$/.test(handoff.expectedEgressIp)) fail('INVALID_PUBLIC_IPV4');
     var o=handoff.expectedEgressIp.split('.').map(Number);
     if(o.some(function(x){return x>255;}) || o[0]===0 || o[0]>=224 || [10,127].indexOf(o[0])!==-1 || o[0]===169&&o[1]===254 || o[0]===192&&o[1]===168 || o[0]===172&&o[1]>=16&&o[1]<=31 || o[0]===100&&o[1]>=64&&o[1]<=127) fail('INVALID_PUBLIC_IPV4');

@@ -15,7 +15,7 @@ function Test-HongAiDeploymentInputs {
     if($handoffNames.Count -ne 6 -or @($handoffNames|Where-Object {$_ -cnotin @('version','tool','loopback','expectedEgressIp','routeId','generatedAt')}).Count){throw 'INVALID_HANDOFF_FIELDS_NO_SUBSCRIPTIONS_OR_SECRETS'}
     $loopNames=@($Handoff.loopback.PSObject.Properties.Name)
     if($loopNames.Count -ne 3 -or @($loopNames|Where-Object {$_ -cnotin @('protocol','host','mixedPort')}).Count){throw 'INVALID_LOOPBACK_FIELDS'}
-    if($Handoff.version -isnot [int] -or $Handoff.version -ne 1 -or $Handoff.tool -cne 'clash' -or $Handoff.loopback.host -cne '127.0.0.1' -or $Handoff.loopback.protocol -cne 'http' -or $Handoff.loopback.mixedPort -isnot [int] -or $Handoff.loopback.mixedPort -lt 1024 -or $Handoff.loopback.mixedPort -gt 65535 -or $Handoff.routeId -cnotmatch '^[a-f0-9]{24}$'){throw 'INVALID_HANDOFF_VALUES'}
+    if($Handoff.version -isnot [int] -or $Handoff.version -ne 1 -or $Handoff.tool -cne 'clash' -or $Handoff.loopback.host -cne '127.0.0.1' -or $Handoff.loopback.protocol -cne 'http' -or $Handoff.loopback.mixedPort -isnot [int] -or $Handoff.loopback.mixedPort -lt 1024 -or $Handoff.loopback.mixedPort -gt 65535 -or $Handoff.routeId -isnot [string] -or $Handoff.routeId -cnotmatch '^[a-f0-9]{24}$'){throw 'INVALID_HANDOFF_VALUES'}
     $ip=[string]$Handoff.expectedEgressIp
     if($ip -cnotmatch '^\d{1,3}(\.\d{1,3}){3}$'){throw 'INVALID_PUBLIC_IPV4'}
     $o=@($ip.Split('.')|ForEach-Object {[int]$_})

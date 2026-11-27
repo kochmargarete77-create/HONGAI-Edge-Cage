@@ -6,7 +6,7 @@ try{
     if($PSVersionTable.PSEdition -ne 'Desktop' -or -not [Environment]::Is64BitProcess){throw 'USE_NATIVE_64BIT_WINDOWS_POWERSHELL_5_1'}
     $env:PSModulePath=(Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\Modules')+';'+(Join-Path $env:ProgramFiles 'WindowsPowerShell\Modules')
     Import-Module (Join-Path $PSScriptRoot 'Deployment-Contract.psm1') -Force
-    function Read-LocalJson([string]$Path){if($Path -notmatch '^[A-Za-z]:\\' -or $Path -match '[\x00-\x1f"]' -or (Get-Item -LiteralPath $Path).Length -gt 262144){throw 'LOCAL_SMALL_JSON_REQUIRED'};Get-Content -LiteralPath $Path -Raw -Encoding UTF8|ConvertFrom-Json}
+    function Read-LocalJson([string]$Path){if($Path -notmatch '^[A-Za-z]:\\' -or $Path -match '[\x00-\x1f"]' -or (Get-Item -LiteralPath $Path).Length -gt 262144){throw 'LOCAL_SMALL_JSON_REQUIRED'};try{Get-Content -LiteralPath $Path -Raw -Encoding UTF8|ConvertFrom-Json}catch{throw 'LOCAL_JSON_READ_OR_PARSE_FAILED_CONTENT_NOT_LOGGED'}}
     $request=Read-LocalJson $RequestFile
     $report=Read-LocalJson $request.environmentReport;$handoff=Read-LocalJson $request.handoffFile
     $validated=Test-HongAiDeploymentInputs -Request $request -Report $report -Handoff $handoff
@@ -24,6 +24,7 @@ try{
     $setup=Join-Path $PSScriptRoot 'HONGAI-CAGE-Desktop-0.3.0-pilot.4-Windows-x64-Setup.exe'
     if((Get-FileHash -LiteralPath $setup).Hash -cne 'D246F490C2DDA51B38BCFB87D803E23EFFB8A21AC4C69BBFA52757521B38A166'){throw 'SETUP_HASH_MISMATCH_DO_NOT_RUN'}
     $owner=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    if($owner -in @('S-1-5-18','S-1-5-19','S-1-5-20')){throw 'RUN_AS_CUSTOMER_USER_NOT_SYSTEM_SERVICE_IDENTITY'}
     $candidates=@('E:\HONGAI-CAGE\Desktop','D:\HONGAI-CAGE\Desktop',(Join-Path $env:ProgramFiles 'HONGAI-CAGE\Desktop'))
     $installed=@()
     foreach($path in $candidates){
