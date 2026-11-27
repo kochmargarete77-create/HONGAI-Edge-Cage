@@ -122,6 +122,35 @@ func TestPolicyValidation(t *testing.T) {
 		t.Fatal("EMPTY_EXPLICIT_RULESET_BREAKS_NORMAL_RESULTS")
 	}
 }
+
+func TestUnsignedAndWrongSourceInstallerRejected(t *testing.T) {
+	root := testDirectory(t)
+	extension := ".exe"
+	if runtime.GOOS == "darwin" {
+		extension = ".pkg"
+	}
+	file := filepath.Join(root, "unsigned-fixture"+extension)
+	os.WriteFile(file, bytes.Repeat([]byte("x"), 4096), 0600)
+	for _, source := range []string{"http://claude.ai/download", "https://example.invalid/Claude", "https://claude.ai@evil.invalid/file", "https://claude.ai:8443/file", "https://claude.ai/download"} {
+		if _, e := inspectInstaller(file, source); e == nil {
+			t.Fatal("UNSIGNED_OR_WRONG_SOURCE_ACCEPTED")
+		}
+	}
+}
+
+func TestOfficialDownloadedArtifactSignatureOnly(t *testing.T) {
+	file := os.Getenv("HONGAI_VALID_INSTALLER")
+	if file == "" {
+		t.Skip("REAL_DOWNLOADED_OFFICIAL_FIXTURE_NOT_PROVIDED")
+	}
+	result, e := inspectInstaller(file, os.Getenv("HONGAI_VALID_INSTALLER_SOURCE"))
+	if e != nil {
+		t.Fatal("OFFICIAL_DOWNLOAD_SIGNATURE_CHECK_FAILED", e)
+	}
+	if result["phase"] != "SIGNED_PUBLISHER_VERIFIED_INSTALL_ROLE_PENDING" || result["installerStarted"] != false || result["installationCompleted"] != false || result["initialLaunchProtected"] != false || result["bundledClaudeRuntime"] != false || result["sourceIsOperatorDeclaredNotBrowserHistoryProof"] != true {
+		t.Fatal("SIGNATURE_CHECK_OVERSTATED_INSTALL_OR_PROTECTION")
+	}
+}
 func TestCurrentUserProtectedStorage(t *testing.T) {
 	root := testDirectory(t)
 	plain := []byte(canary)

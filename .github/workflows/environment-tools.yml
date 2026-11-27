@@ -36,6 +36,10 @@ jobs:
           $env:HONGAI_TOOL_BINARY=Join-Path (Get-Location) 'dist/hongai-tools.exe'
           go build -buildvcs=false -trimpath -ldflags '-s -w' -o $env:HONGAI_TOOL_BINARY .
           if($LASTEXITCODE){throw 'BUILD_FAILED'}
+          $env:HONGAI_VALID_INSTALLER=Join-Path $env:RUNNER_TEMP 'official-Claude.msix'
+          $env:HONGAI_VALID_INSTALLER_SOURCE='https://downloads.claude.ai/releases/win32/x64/6.28899.6/Claude-2f5fc59b2d1c672dd9dced86720c50f48cca0cf9.msix'
+          Invoke-WebRequest -Uri $env:HONGAI_VALID_INSTALLER_SOURCE -OutFile $env:HONGAI_VALID_INSTALLER -TimeoutSec 150
+          if((Get-FileHash $env:HONGAI_VALID_INSTALLER).Hash -cne 'D95045A5354F2058FC380B5F1400AD3B66C841692644CB4C0C70CA3D4B6CCD5A'){throw 'OFFICIAL_FIXTURE_HASH_MISMATCH'}
           go test -v -count=1 ./... 2>&1|Tee-Object -FilePath dist/native-tests.txt
           if($LASTEXITCODE){throw 'NATIVE_TESTS_FAILED'}
           & $env:HONGAI_TOOL_BINARY version|Out-File dist/component-status.json -Encoding utf8
@@ -52,6 +56,9 @@ jobs:
           export HONGAI_TOOL_BINARY="$(pwd -P)/dist/hongai-tools"
           go build -buildvcs=false -trimpath -ldflags '-s -w' -o "$HONGAI_TOOL_BINARY" .
           codesign --force --sign - --timestamp=none "$HONGAI_TOOL_BINARY"
+          export HONGAI_VALID_INSTALLER="$(cd "$RUNNER_TEMP" && pwd -P)/official-Claude.pkg"
+          export HONGAI_VALID_INSTALLER_SOURCE='https://claude.ai/api/desktop/darwin/universal/pkg/latest/redirect'
+          curl --fail --location --max-time 150 --max-filesize 1200000000 --proto '=https' --proto-redir '=https' "$HONGAI_VALID_INSTALLER_SOURCE" -o "$HONGAI_VALID_INSTALLER"
           go test -v -count=1 ./... 2>&1 | tee dist/native-tests.txt
           GOARCH=amd64 go build -buildvcs=false -trimpath -ldflags '-s -w' -o dist/hongai-tools-amd64 .
           GOARCH=arm64 go build -buildvcs=false -trimpath -ldflags '-s -w' -o dist/hongai-tools-arm64 .

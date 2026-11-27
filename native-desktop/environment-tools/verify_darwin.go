@@ -19,7 +19,7 @@ func verifyOfficialInstaller(p string) error {
 		return errors.New("OFFICIAL_INSTALLER_SIGNATURE_NOT_VERIFIED")
 	}
 	text := string(out)
-	if !regexp.MustCompile(`Developer ID Installer: Anthropic(?:,? PBC)? \([A-Z0-9]{10}\)`).MatchString(text) {
+	if !regexp.MustCompile(`Developer ID Installer: Anthropic(?:,? PBC)? \(Q6L2SF6YDW\)`).MatchString(text) {
 		return errors.New("ANTHROPIC_INSTALLER_PUBLISHER_NOT_VERIFIED")
 	}
 	if !strings.Contains(text, "signed by a certificate trusted by") {
