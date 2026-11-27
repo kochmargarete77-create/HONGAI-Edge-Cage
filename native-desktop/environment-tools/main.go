@@ -10,12 +10,16 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 )
 
 const version = "0.1.0-tools-preview"
 
 func execute(args []string) error {
+	if len(args) > 0 && args[0] == "environment" {
+		return executeEnvironment(args[1:])
+	}
 	if len(args) == 0 || args[0] == "version" {
 		return json.NewEncoder(os.Stdout).Encode(map[string]any{"name": "HONG AI Native Tool Privacy", "version": version, "componentOnly": true, "fullEnvironmentSimulation": false, "officialClientBundled": false, "physicalHardwareSimulation": false})
 	}
@@ -95,7 +99,11 @@ func execute(args []string) error {
 	}
 }
 func main() {
-	if e := execute(os.Args[1:]); e != nil {
+	args := os.Args[1:]
+	if len(args) == 0 && strings.HasPrefix(strings.ToLower(filepath.Base(os.Args[0])), "hongai-environment") {
+		args = []string{"environment", "use"}
+	}
+	if e := execute(args); e != nil {
 		code := e.Error()
 		if !regexp.MustCompile(`^[A-Z0-9_]{1,100}$`).MatchString(code) {
 			code = "OPERATION_FAILED_NO_RAW_DETAILS_EXPORTED"

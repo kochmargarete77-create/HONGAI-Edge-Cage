@@ -1,4 +1,4 @@
-name: Native environment tool privacy component
+name: Native environment workbench and tool privacy
 on:
   push:
     branches: [native-desktop-development]
@@ -43,6 +43,12 @@ jobs:
           $nativePS=Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
           $env:HONGAI_VERIFY_FILE=$env:HONGAI_VALID_INSTALLER
           & $nativePS -NoProfile -NonInteractive -Command '$env:PSModulePath=(Join-Path $env:WINDIR "System32\WindowsPowerShell\v1.0\Modules")+";"+(Join-Path $env:ProgramFiles "WindowsPowerShell\Modules");$s=Get-AuthenticodeSignature -LiteralPath $env:HONGAI_VERIFY_FILE;[pscustomobject]@{status=[string]$s.Status;signer=$s.SignerCertificate.GetNameInfo([Security.Cryptography.X509Certificates.X509NameType]::SimpleName,$false)}|ConvertTo-Json -Compress'
+          & $nativePS -NoProfile -NonInteractive -Command '$ErrorActionPreference="Stop";$env:PSModulePath=(Join-Path $env:WINDIR "System32\WindowsPowerShell\v1.0\Modules")+";"+(Join-Path $env:ProgramFiles "WindowsPowerShell\Modules");Add-AppxPackage -Path $env:HONGAI_VALID_INSTALLER -ErrorAction Stop'
+          if($LASTEXITCODE){throw 'OFFICIAL_NATIVE_REGISTRATION_FAILED'}
+          $env:HONGAI_REQUIRE_REGISTERED_CLIENT='1'
+          $env:HONGAI_UI_ARTIFACT_DIR=Join-Path (Get-Location) 'dist/ui'
+          $env:HONGAI_BROWSER_FIXTURE_PATH=@('C:\Program Files\Google\Chrome\Application\chrome.exe','C:\Program Files (x86)\Google\Chrome\Application\chrome.exe','C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe')|Where-Object {Test-Path -LiteralPath $_}|Select-Object -First 1
+          if(-not $env:HONGAI_BROWSER_FIXTURE_PATH){throw 'CI_BROWSER_FIXTURE_NOT_AVAILABLE'}
           go test -v -count=1 ./... 2>&1|Tee-Object -FilePath dist/native-tests.txt
           if($LASTEXITCODE){throw 'NATIVE_TESTS_FAILED'}
           & $env:HONGAI_TOOL_BINARY version|Out-File dist/component-status.json -Encoding utf8
@@ -67,6 +73,13 @@ jobs:
           python3 -c 'import zipfile,sys,posixpath; z=zipfile.ZipFile(sys.argv[1]); names=z.namelist(); assert all(not n.startswith("/") and ".." not in n.split("/") for n in names); links=[(i,z.read(i).decode()) for i in z.infolist() if (i.external_attr>>16)&0o170000==0o120000]; assert all(not t.startswith("/") and not posixpath.normpath(posixpath.join(posixpath.dirname(i.filename),t)).startswith("../") for i,t in links)' "$official/Claude.zip"
           ditto -x -k "$official/Claude.zip" "$official/expanded"
           export HONGAI_VALID_INSTALLER="$official/expanded/Claude.app"
+          mkdir -p "$HOME/Applications"
+          test ! -e "$HOME/Applications/Claude.app"
+          ditto "$HONGAI_VALID_INSTALLER" "$HOME/Applications/Claude.app"
+          export HONGAI_REQUIRE_REGISTERED_CLIENT=1
+          export HONGAI_UI_ARTIFACT_DIR="$(pwd -P)/dist/ui"
+          export HONGAI_BROWSER_FIXTURE_PATH="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+          test -x "$HONGAI_BROWSER_FIXTURE_PATH"
           go test -v -count=1 ./... 2>&1 | tee dist/native-tests.txt
           GOARCH=amd64 go build -buildvcs=false -trimpath -ldflags '-s -w' -o dist/hongai-tools-amd64 .
           GOARCH=arm64 go build -buildvcs=false -trimpath -ldflags '-s -w' -o dist/hongai-tools-arm64 .

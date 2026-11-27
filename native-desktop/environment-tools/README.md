@@ -1,4 +1,35 @@
-# HONG AI native tool privacy component
+# HONG AI native environment workbench and tool privacy component
+
+The `environment` command adds a native, account-free preparation and diagnostics
+workbench. It preserves the official Claude installation, package identity and
+updates. Its local browser window manages configuration; Claude itself remains
+the official desktop application. It does not embed claude.ai.
+
+The workbench installs its own executable into a stable owned directory, saves
+approved local-proxy/exit settings with current-user protected storage, discovers
+the official desktop application and profile candidates, and probes the explicit
+loopback HTTP/Mixed proxy three times without a direct fallback. A saved daily
+entry can request normal official-app activation after successful preparation
+checks. Missing settings or failed checks return to the workbench.
+
+Preparation probes do not enforce or prove the complete network behavior of the
+official client or its children. Full hardware simulation, system-level network
+enforcement, authenticated account acceptance and organizational publisher signing
+remain separate unaccepted capabilities. No account is needed for component tests.
+
+```text
+hongai-tools environment install --root <dedicated-absolute-directory>
+hongai-tools environment open --root <same-directory>
+hongai-tools environment use --root <same-directory>
+hongai-tools environment inventory
+hongai-tools environment uninstall --root <same-directory>
+```
+
+Uninstall refuses an active workbench or conflicting MCP edits and recoverably
+renames only the owned workbench directory. It never uninstalls official Claude,
+clears account state, changes host networking or deletes customer projects.
+Clash subscription and final-node credentials remain in the accepted Clash setup;
+the workbench accepts only the approved loopback entry, final IPv4 and target time zone.
 
 Native Windows/macOS development component, version `0.1.0-tools-preview`.
 This is **not** a completed environment simulator, hardware emulator, sandbox,

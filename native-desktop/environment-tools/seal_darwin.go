@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -12,6 +13,7 @@ import (
 	"errors"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 func keychainAccount(root string) string {
@@ -19,14 +21,19 @@ func keychainAccount(root string) string {
 	return hex.EncodeToString(s[:16])
 }
 func keychainKey(root string, create bool) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 	account := keychainAccount(root)
-	c := exec.Command("/usr/bin/security", "find-generic-password", "-a", account, "-s", "com.hongai.environment.mcp-privacy", "-w")
+	c := exec.CommandContext(ctx, "/usr/bin/security", "find-generic-password", "-a", account, "-s", "com.hongai.environment.mcp-privacy", "-w")
 	if out, e := c.Output(); e == nil {
 		key, e := base64.StdEncoding.DecodeString(strings.TrimSpace(string(out)))
 		if e == nil && len(key) == 32 {
 			return key, nil
 		}
 		return nil, errors.New("KEYCHAIN_KEY_INVALID")
+	}
+	if ctx.Err() != nil {
+		return nil, errors.New("KEYCHAIN_ACCESS_TIMED_OUT")
 	}
 	if !create {
 		return nil, errors.New("KEYCHAIN_KEY_UNAVAILABLE")
@@ -37,7 +44,7 @@ func keychainKey(root string, create bool) ([]byte, error) {
 	}
 	// Secret passes through a private stdin pipe, not the process argument list.
 	command := "add-generic-password -a " + account + " -s com.hongai.environment.mcp-privacy -w " + base64.StdEncoding.EncodeToString(key) + "\n"
-	c = exec.Command("/usr/bin/security", "-i")
+	c = exec.CommandContext(ctx, "/usr/bin/security", "-i")
 	c.Stdin = strings.NewReader(command)
 	if e := c.Run(); e != nil {
 		return nil, errors.New("KEYCHAIN_CREATE_FAILED")
