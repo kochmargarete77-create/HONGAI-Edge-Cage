@@ -11,8 +11,10 @@ param(
 $ErrorActionPreference='Stop'
 if($PSVersionTable.PSEdition -eq 'Desktop'){$env:PSModulePath=(Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\Modules')+';'+(Join-Path $env:ProgramFiles 'WindowsPowerShell\Modules')}
 $safeDataRoot=$false
+$sessionOwner=$null
 trap {
-    if($safeDataRoot){[IO.File]::WriteAllText((Join-Path $DataRoot 'session-status.json'),([ordered]@{phase='BLOCKED';error=$_.Exception.Message}|ConvertTo-Json),[Text.UTF8Encoding]::new($false))}
+    if($safeDataRoot){Write-HongAiSessionStatus -DataRoot $DataRoot -Status ([ordered]@{phase='BLOCKED';error=$_.Exception.Message;supervisorPid=$PID})}
+    if($sessionOwner){$sessionOwner.Dispose()}
     exit 1
 }
 $runtime=$PSScriptRoot
@@ -20,8 +22,12 @@ $DataRoot=[IO.Path]::GetFullPath($DataRoot).TrimEnd('\')
 $receipt=Get-Content -LiteralPath (Join-Path $DataRoot 'installation.json') -Raw -Encoding UTF8|ConvertFrom-Json
 $sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 if($receipt.schema -cne 'hongai.cage.installation.v1' -or $receipt.dataRoot -cne $DataRoot -or $receipt.ownerSid -cne $sid){throw 'CAGE_INSTALLATION_OWNERSHIP_MISMATCH'}
+Import-Module (Join-Path $runtime 'Session-Safety.psm1') -Force
+$sessionOwner=Enter-HongAiSessionOwner -DataRoot $DataRoot
+if(@(Get-Process Claude -ErrorAction SilentlyContinue).Count -gt 0){throw 'EXIT_EXISTING_CLAUDE_BEFORE_START'}
+$environmentId=Get-HongAiEnvironmentIdentity -DataRoot $DataRoot -OwnerSid $sid
 $safeDataRoot=$true
-[IO.File]::WriteAllText((Join-Path $DataRoot 'session-status.json'),(@{phase='PREPARING';message='核对已保存配置与官方桌面运行文件'}|ConvertTo-Json),[Text.UTF8Encoding]::new($false))
+Write-HongAiSessionStatus -DataRoot $DataRoot -Status @{phase='PREPARING';supervisorPid=$PID;message='核对已保存配置与官方桌面运行文件'}
 if($OfflineAcceptance -and $env:GITHUB_ACTIONS -ne 'true'){throw 'TEST_OVERRIDES_REQUIRE_DISPOSABLE_CI'}
 $workspaceItem=Get-Item -LiteralPath $Workspace -ErrorAction Stop
 if(-not $workspaceItem.PSIsContainer -or ($workspaceItem.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'WORKSPACE_MUST_BE_A_REAL_LOCAL_DIRECTORY'}
@@ -39,7 +45,12 @@ $enrolled=Join-Path $DataRoot 'enrolled-handoff.json'
 $newEnrollment=-not [string]::IsNullOrWhiteSpace($HandoffPath)
 if($newEnrollment){$handoff=Read-HongAiClashHandoff -Path $HandoffPath}
 else{$HandoffPath=$enrolled;$handoff=Read-HongAiClashHandoff -Path $HandoffPath -MaximumAge ([timespan]::MaxValue)}
-if(-not $OfflineAcceptance){$null=Test-HongAiClashRoute -Handoff $handoff -Passes 3}
+if(-not $OfflineAcceptance){
+    for($attempt=1;$attempt -le 3;$attempt++){
+        try{$null=Test-HongAiClashRoute -Handoff $handoff -Passes 3;break}
+        catch{if($_.Exception.Message -eq 'ROUTE_EGRESS_MISMATCH' -or $attempt -eq 3){throw};Start-Sleep -Milliseconds 400}
+    }
+}
 $engine=[IO.Path]::GetFullPath([string]$receipt.enginePath)
 foreach($protected in @($DataRoot,$runtime,$engine)){$protected=$protected.TrimEnd('\');if($Workspace.StartsWith($protected+'\',[StringComparison]::OrdinalIgnoreCase)-or $protected.StartsWith($Workspace+'\',[StringComparison]::OrdinalIgnoreCase)-or $Workspace -ieq $protected){throw 'WORKSPACE_OVERLAPS_PROTECTED_RUNTIME_OR_CONFIGURATION'}}
 $start=Join-Path $engine 'Start.exe';$ini=Join-Path $engine 'SbieIni.exe'
@@ -67,7 +78,7 @@ function Box-Pids {
 }
 $ownership=Join-Path $DataRoot 'box-ownership.json'
 $existing=Read-Setting $box 'Enabled'
-if($existing){if(-not(Test-Path $ownership)){throw 'EXISTING_BOX_NOT_OWNED_BY_CAGE'};$owner=Get-Content $ownership -Raw -Encoding UTF8|ConvertFrom-Json;if($owner.box -cne $box -or $owner.ownerSid -cne $sid){throw 'BOX_OWNERSHIP_MISMATCH'};if(@(Box-Pids).Count -gt 0){throw 'CAGE_SESSION_ALREADY_RUNNING'}}
+if(-not [string]::IsNullOrWhiteSpace($existing)){if($existing -cnotin @('y','n')){throw 'BOX_ENABLED_STATE_UNRECOGNIZED'};if(-not(Test-Path $ownership)){throw 'EXISTING_BOX_NOT_OWNED_BY_CAGE'};$owner=Get-Content $ownership -Raw -Encoding UTF8|ConvertFrom-Json;if($owner.box -cne $box -or $owner.ownerSid -cne $sid){throw 'BOX_OWNERSHIP_MISMATCH'};if($existing -ceq 'n'){Set-Setting $box 'Enabled' 'y'};if(@(Box-Pids).Count -gt 0){throw 'CAGE_SESSION_ALREADY_RUNNING'}}
 else{
     [IO.File]::WriteAllText($ownership,([ordered]@{box=$box;ownerSid=$sid}|ConvertTo-Json),[Text.UTF8Encoding]::new($false))
 }
@@ -82,8 +93,8 @@ try{if($hostPolicy -and $hostPolicy.ValueCount -gt 0){throw 'EXISTING_ENTERPRISE
 Add-Type -Path (Join-Path $runtime 'resources\HONGAI-SessionProxy.dll')
 $broker=$null;$admitted=$false;$startedAt=[datetime]::UtcNow
 $statusPath=Join-Path $DataRoot 'session-status.json'
-$status=[ordered]@{schema='hongai.cage.session.v1';phase='PREPARING';box=$box;exitIp=$handoff.ExpectedEgressIp;mode='SIGNED_DESKTOP_SANDBOX_PILOT';loginAttempted=$false;globalNetworkChanges=0;storageBudgetChecks=0;officialSourceKind=$official.SourceKind;officialPackage=$official.PackageFullName;officialFilesVerified=$official.FilesVerified;runtimeCacheReused=$official.CacheReused}
-function Save-Status{[IO.File]::WriteAllText($statusPath,($status|ConvertTo-Json -Depth 6),[Text.UTF8Encoding]::new($false))}
+$status=[ordered]@{schema='hongai.cage.session.v1';phase='PREPARING';supervisorPid=$PID;sessionId=[guid]::NewGuid().ToString('N');box=$box;exitIp=$handoff.ExpectedEgressIp;mode='SIGNED_DESKTOP_SANDBOX_PILOT';loginAttempted=$false;globalNetworkChanges=0;storageBudgetChecks=0;probeFailureStreak=0;networkBlocked=$true;officialSourceKind=$official.SourceKind;officialPackage=$official.PackageFullName;officialFilesVerified=$official.FilesVerified;runtimeCacheReused=$official.CacheReused}
+function Save-Status{Write-HongAiSessionStatus -DataRoot $DataRoot -Status $status}
 Save-Status
 try{
     $broker=[HongAi.SessionProxy]::new($handoff.ProxyPort,30000)
@@ -107,6 +118,10 @@ try{
     # into an assumed already-protected process.
     Set-Setting $box 'ForceProcess' ''
     Set-Setting $box 'ForceFolder' (Join-Path $DataRoot 'OfficialRuntime')
+    Set-Setting $box 'ReadFilePath' ((Join-Path $DataRoot 'OfficialRuntime')+'\*')
+    Set-Setting $box 'ClosedFilePath' (Join-Path $DataRoot 'session-owner.lock') -Append
+    Set-Setting $box 'ClosedFilePath' (Join-Path $DataRoot 'environment-identity.json') -Append
+    Set-Setting $box 'ClosedFilePath' $statusPath -Append
     Set-Setting $box 'Enabled' 'y'
     $active=Read-Setting $box 'NetworkAccess'
     if($active -notmatch '\*,Block' -or $active -notmatch [regex]::Escape("Port=$($broker.Port);Address=127.0.0.1;Protocol=TCP")){throw 'BOX_KERNEL_POLICY_READBACK_FAILED'}
@@ -130,8 +145,9 @@ try{
     Start-Sleep -Seconds 2
     $boxPids=@(Box-Pids)
     if(@(Get-Process Claude -ErrorAction SilentlyContinue|Where-Object {$_.Id -in $boxPids}).Count -eq 0){throw 'OFFICIAL_DESKTOP_DID_NOT_START_IN_OWN_BOX'}
-    $admitted=$true;$startedAt=[datetime]::UtcNow;$status.phase='RUNNING';$status.proxyPort=$broker.Port;$status.officialDesktopStarted=$true;$status.observedBoxProcesses=$boxPids.Count;Save-Status
+    $admitted=$true;$startedAt=[datetime]::UtcNow;$status.phase='RUNNING';$status.networkBlocked=$false;$status.proxyPort=$broker.Port;$status.officialDesktopStarted=$true;$status.observedBoxProcesses=$boxPids.Count;Save-Status
     $nextStorageCheck=[datetime]::UtcNow.AddSeconds(20)
+    $nextExitCheck=[datetime]::UtcNow.AddSeconds(30)
     while($true){
         Start-Sleep -Seconds 3
         if(Test-Path -LiteralPath $stop){break}
@@ -158,13 +174,29 @@ try{
             $status.storageBudgetChecks++
             $nextStorageCheck=[datetime]::UtcNow.AddSeconds(30)
         }
-        if(-not $OfflineAcceptance){$null=Test-HongAiClashRoute -Handoff $handoff -Passes 1 -DelayMilliseconds 0}
-        $broker.Refresh(16000)
+        if(-not $OfflineAcceptance){
+            if($broker.IsPaused -and -not $status.networkBlocked){$status.networkBlocked=$true;$status.phase='NETWORK_PAUSED';$nextExitCheck=[datetime]::UtcNow;Save-Status}
+            if(-not(Test-HongAiLoopbackListener -Port $handoff.ProxyPort -TimeoutMilliseconds 500)){
+                $broker.Suspend();$status.networkBlocked=$true;$status.phase='NETWORK_PAUSED';$status.lastProbeError='ROUTE_LOOPBACK_LISTENER_UNAVAILABLE';Save-Status
+            }
+            if([datetime]::UtcNow -ge $nextExitCheck){
+                try{
+                    $passes=if($status.networkBlocked){3}else{1}
+                    $null=Test-HongAiClashRoute -Handoff $handoff -Passes $passes -DelayMilliseconds 300
+                    $broker.Resume(16000);$status.networkBlocked=$false;$status.phase='RUNNING';$status.probeFailureStreak=0;$status.lastProbeError=$null
+                }catch{
+                    $broker.Suspend();$status.networkBlocked=$true;$status.phase='NETWORK_PAUSED';$status.probeFailureStreak++;$status.lastProbeError=$_.Exception.Message
+                }
+                $delay=[math]::Min(120,30*[math]::Pow(2,[math]::Min(2,$status.probeFailureStreak)))
+                $nextExitCheck=[datetime]::UtcNow.AddSeconds($delay);Save-Status
+            }
+        }
+        if(-not $status.networkBlocked){$broker.Refresh(16000)}
     }
     $status.phase='STOPPED'
 } catch {$status.phase='BLOCKED';$status.error=$_.Exception.Message;throw}
 finally{
     if($broker){$broker.Dispose()}
     if($admitted -or $broker){try{$null=Invoke-Engine $start @("/box:$box",'/terminate')}catch{$status.recovery='OWN_BOX_TERMINATION_REQUIRES_REVIEW_NETWORK_GATEWAY_CLOSED'}}
-    Save-Status
+    try{Save-Status}finally{$safeDataRoot=$false;if($sessionOwner){$sessionOwner.Dispose();$sessionOwner=$null}}
 }

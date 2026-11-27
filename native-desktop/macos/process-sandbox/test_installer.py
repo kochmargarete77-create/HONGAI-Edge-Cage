@@ -55,6 +55,18 @@ def main():
         if "PASS installed native UI" not in result.stdout:
             raise RuntimeError("NATIVE_UI_SMOKE_NOT_CONFIRMED")
         print(result.stdout.strip(),flush=True)
+        if not (application/'Contents/Resources/Claude.icns').is_file() or info.get('CFBundleIconFile')!='Claude.icns':
+            raise RuntimeError('OFFICIAL_ICON_NOT_INSTALLED')
+        identity=(own_data/'environment-identity.json').read_bytes()
+        diag_dir=own_data/'diagnostic-fixture';diag_dir.mkdir()
+        (diag_dir/'main.log').write_text('HTTP/1.1 401 Unauthorized token=PRIVATE_CANARY_NEVER_EXPORT\nsafeStorage decrypt error PRIVATE_CANARY_NEVER_EXPORT\ncrash_reporter_started_ms: 429')
+        (diag_dir/'Cookies').write_text('PRIVATE_CANARY_NEVER_EXPORT')
+        diagnostic=run([str(executable),'--auth-diagnostics']).stdout
+        diag=json.loads(diagnostic)
+        if 'PRIVATE_CANARY_NEVER_EXPORT' in diagnostic or str(own_data) in diagnostic or diag['eventCounts']['explicitHttp401']!=1 or diag['eventCounts']['credentialStoreFailure']!=1 or diag['credentialValuesExported']:
+            raise RuntimeError('AUTH_DIAGNOSTIC_REDACTION_FAILED')
+        (diag_dir/'main.log').unlink();(diag_dir/'Cookies').unlink();diag_dir.rmdir()
+        print('PASS official icon and credential-free auth diagnostics',flush=True)
         run(['sudo','/usr/bin/ditto',str(base / 'build/official-fixture/Claude.app'),str(official)])
         official_added=True
         with tempfile.TemporaryDirectory(prefix='hongai-daily-launch-') as project,socket.socket() as endpoint:
@@ -71,6 +83,9 @@ def main():
             if 'PASS daily automatic launch' not in cached.stdout:
                 raise RuntimeError('VERIFIED_SNAPSHOT_REUSE_FAILED')
             print('PASS second daily launch reuses the signed private official snapshot',flush=True)
+            if (own_data/'environment-identity.json').read_bytes()!=identity:
+                raise RuntimeError('ENVIRONMENT_ID_CHANGED_ON_RESTART')
+            print('PASS restart preserves local environment identity and existing state',flush=True)
             # Exercise the actual product downloader and user-directory install,
             # rather than assuming a preinstalled official app on every client.
             run(['sudo','/bin/rm','-rf',str(official)])

@@ -42,10 +42,18 @@ final class SessionBroker {
     private var pairs: [UUID:(NWConnection,NWConnection)] = [:]
     private var validUntil:UInt64 = 0
     private var stopped = false
+    private var paused = false
+    private var leaseTimer:DispatchSourceTimer?
+    var isPaused:Bool {lock.lock();defer{lock.unlock()};return paused}
     private let upstream: UInt16
     private(set) var port: UInt16 = 0
     init(upstream: UInt16) { self.upstream=upstream }
-    func refresh() { lock.lock(); if !stopped {validUntil=DispatchTime.now().uptimeNanoseconds+12_000_000_000}; lock.unlock() }
+    func refresh() { lock.lock(); if !stopped && !paused {validUntil=DispatchTime.now().uptimeNanoseconds+12_000_000_000}; lock.unlock() }
+    func suspend() {
+        lock.lock();paused=true;validUntil=0;let active=Array(pairs.values);pairs.removeAll();lock.unlock()
+        for pair in active {pair.0.stateUpdateHandler=nil;pair.1.stateUpdateHandler=nil;pair.0.cancel();pair.1.cancel()}
+    }
+    func resume() {lock.lock();if !stopped {paused=false;validUntil=DispatchTime.now().uptimeNanoseconds+12_000_000_000};lock.unlock()}
     func start() throws {
         let parameters=NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host:"127.0.0.1",port:.any)
@@ -61,9 +69,17 @@ final class SessionBroker {
         listener=server; server.start(queue:queue)
         guard ready.wait(timeout:.now()+5) == .success, failure == nil, port > 1023 else {server.cancel();throw CageFailure("无法建立会话专用代理入口。")}
         refresh()
+        let timer=DispatchSource.makeTimerSource(queue:queue)
+        timer.schedule(deadline:.now()+0.25,repeating:0.25)
+        timer.setEventHandler{[weak self] in
+            guard let owner=self else {return}
+            owner.lock.lock();let expired = !owner.stopped && !owner.paused && DispatchTime.now().uptimeNanoseconds >= owner.validUntil;owner.lock.unlock()
+            if expired {owner.suspend()}
+        }
+        leaseTimer=timer;timer.resume()
     }
     private func accept(_ incoming:NWConnection) {
-        lock.lock();let admitted = !stopped && DispatchTime.now().uptimeNanoseconds < validUntil && pairs.count < 64;lock.unlock()
+        lock.lock();let admitted = !stopped && !paused && DispatchTime.now().uptimeNanoseconds < validUntil && pairs.count < 64;lock.unlock()
         guard admitted else {incoming.cancel();return}
         let outgoing=NWConnection(host:"127.0.0.1",port:NWEndpoint.Port(rawValue:upstream)!,using:.tcp)
         let key=UUID();lock.lock();pairs[key]=(incoming,outgoing);lock.unlock()
@@ -101,6 +117,7 @@ final class SessionBroker {
     func stop(){
         lock.lock();stopped=true;validUntil=0;let active=Array(pairs.values);pairs.removeAll();lock.unlock()
         listener?.cancel();for pair in active {pair.0.stateUpdateHandler=nil;pair.1.stateUpdateHandler=nil;pair.0.cancel();pair.1.cancel()}
+        leaseTimer?.cancel();leaseTimer=nil
     }
     deinit {stop()}
 }
@@ -135,6 +152,10 @@ func brokerSelfTest() throws {
         client.start(queue:queue);_ = done.wait(timeout:.now()+4);client.cancel();lock.lock();let result=matched;lock.unlock();return result
     }
     guard exchange() else {throw CageFailure("BROKER_FORWARD_FAILED")};print("PASS session gateway forwards to selected local proxy")
+    broker.suspend()
+    guard !exchange() else {throw CageFailure("BROKER_PAUSED_ACCEPTED")};print("PASS pause immediately blocks new traffic without killing the application")
+    broker.resume()
+    guard exchange() else {throw CageFailure("BROKER_RESUME_FAILED")};print("PASS verified resume retains the exact same session port")
     Thread.sleep(forTimeInterval:12.2)
     guard !exchange() else {throw CageFailure("BROKER_EXPIRED_LEASE_ACCEPTED")};print("PASS expired verification lease rejects new streams")
     broker.stop()
@@ -148,6 +169,69 @@ func brokerSelfTest() throws {
 struct CageFailure: Error, CustomStringConvertible {
     let description: String
     init(_ message: String) { description = message }
+}
+
+final class SessionOwnerLease {
+    private let descriptor:Int32
+    init(root:URL) throws {
+        let fm=FileManager.default
+        try fm.createDirectory(at:root,withIntermediateDirectories:true,attributes:[.posixPermissions:0o700])
+        guard root.resolvingSymlinksInPath() == root.standardizedFileURL else {throw CageFailure("SESSION_DATA_LINK_REJECTED")}
+        let file=root.appendingPathComponent("session-owner.lock")
+        let fd=file.path.withCString {Darwin.open($0,O_RDWR|O_CREAT|O_NOFOLLOW,0o600)}
+        guard fd >= 0 else {throw CageFailure("SESSION_OWNER_UNAVAILABLE")}
+        guard flock(fd,LOCK_EX|LOCK_NB) == 0 else {Darwin.close(fd);throw CageFailure("CAGE_SESSION_ALREADY_RUNNING")}
+        descriptor=fd
+    }
+    deinit {flock(descriptor,LOCK_UN);Darwin.close(descriptor)}
+}
+
+func authDiagnostics() throws -> String {
+    let fm=FileManager.default,root=fm.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/HONGAI-CAGE-Desktop")
+    let patterns:[String:String]=[
+        "explicitHttp401":#"(?i)(?:HTTP/\S+\s+401\b|(?:status|statusCode)\s*[=:]\s*401\b|401\s+Unauthorized)"#,
+        "explicitHttp403":#"(?i)(?:HTTP/\S+\s+403\b|(?:status|statusCode)\s*[=:]\s*403\b|403\s+Forbidden)"#,
+        "refreshFailure":#"(?i)(?:refresh.*(?:fail|error|invalid|denied)|(?:fail|error|invalid|denied).*refresh|invalid_grant)"#,
+        "credentialStoreFailure":#"(?i)(?:safeStorage|DPAPI|os_crypt|keychain).*(?:fail|error|denied|unavailable|decrypt)"#,
+        "persistenceFailure":#"(?i)(?:SQLITE_(?:IOERR|CORRUPT|FULL)|database is locked|(?:cookie|storage|profile).*(?:EACCES|access denied|permission denied|read.only))"#,
+        "identityOrCallbackEvents":#"(?i)(?:identity changed mid.flow|(?:oauth|callback).*(?:fail|error|mismatch|denied))"#,
+        "explicitAccountRestriction":#"(?i)(?:account (?:is )?(?:disabled|suspended|deactivated)|organization.*(?:on hold|suspended))"#]
+    let regex=try patterns.mapValues{try NSRegularExpression(pattern:$0)}
+    guard root.resolvingSymlinksInPath() == root.standardizedFileURL else {throw CageFailure("DIAGNOSTIC_ROOT_LINK_REJECTED")}
+    var counts=patterns.mapValues{_ in 0},metadata:[[String:Any]]=[],entries=0,logs=0,complete=fm.fileExists(atPath:root.path)
+    if let enumerator=fm.enumerator(at:root,includingPropertiesForKeys:[.isSymbolicLinkKey,.isDirectoryKey,.isRegularFileKey,.fileSizeKey,.contentModificationDateKey]) {
+        for case let url as URL in enumerator {
+            entries+=1;if entries>6000 {complete=false;break}
+            guard let values=try? url.resourceValues(forKeys:[.isSymbolicLinkKey,.isDirectoryKey,.isRegularFileKey,.fileSizeKey,.contentModificationDateKey]) else {complete=false;continue}
+            if values.isSymbolicLink == true {enumerator.skipDescendants();continue}
+            if values.isDirectory == true {if ["OfficialRuntime","Recovery","Cache","Code Cache"].contains(url.lastPathComponent){enumerator.skipDescendants()};continue}
+            let name=url.lastPathComponent
+            if ["Cookies","Local State","Preferences","Cookies-journal"].contains(name) {metadata.append(["kind":name,"bytes":values.fileSize ?? 0,"modifiedUtc":values.contentModificationDate.map{ISO8601DateFormatter().string(from:$0)} ?? "UNKNOWN"])}
+            guard ["main.log","claude.ai-web.log","remote-control.log"].contains(name),logs<12,let file=try? FileHandle(forReadingFrom:url) else {continue}
+            defer {try? file.close()};logs+=1
+            let size=try file.seekToEnd();try file.seek(toOffset:size>1_048_576 ? size-1_048_576 : 0)
+            let bytes=try file.read(upToCount:1_048_576) ?? Data(),text=String(decoding:bytes,as:UTF8.self)
+            for line in text.components(separatedBy:"\n") {for (key,pattern) in regex {if pattern.firstMatch(in:line,range:NSRange(line.startIndex...,in:line)) != nil {counts[key,default:0]+=1}}}
+        }
+    }
+    let report:[String:Any]=["schema":"hongai.auth-diagnostics.v1","platform":"Mac","generatedUtc":ISO8601DateFormatter().string(from:Date()),"storageMetadata":metadata,"eventCounts":counts,"logTailsInspected":logs,"boundedEntryCount":entries,"coverageComplete":complete,"accountRestrictionConfirmed":false,"credentialStoreContentsOpened":false,"credentialValuesExported":false,"applicationLogTailsInspectedLocally":true,"rawLogExported":false,"loginStateChanged":false,"hostNetworkSettingsChanged":false,"scope":"COUNTS_AND_STORAGE_METADATA_ONLY_NOT_ACCOUNT_OR_SESSION_ACCEPTANCE"]
+    return String(decoding:try JSONSerialization.data(withJSONObject:report,options:[.prettyPrinted,.sortedKeys]),as:UTF8.self)
+}
+
+func ensureEnvironmentIdentity(_ root:URL) throws -> String {
+    let file=root.appendingPathComponent("environment-identity.json"),fm=FileManager.default
+    let digest=SHA256.hash(data:Data(root.standardizedFileURL.path.utf8)).map{String(format:"%02x",$0)}.joined()
+    if fm.fileExists(atPath:file.path) {
+        guard file.resolvingSymlinksInPath() == file.standardizedFileURL else {throw CageFailure("ENVIRONMENT_IDENTITY_LINK_REJECTED")}
+        let bytes=try Data(contentsOf:file)
+        guard bytes.count<8192,let object=(try JSONSerialization.jsonObject(with:bytes)) as? [String:Any],object["schema"] as? String == "hongai.environment-identity.v1",object["ownerUid"] as? String == String(getuid()),object["dataRootHash"] as? String == digest,let id=object["environmentId"] as? String,UUID(uuidString:id) != nil else {throw CageFailure("ENVIRONMENT_IDENTITY_MIGRATION_REVIEW_REQUIRED_NO_RESET")}
+        return id
+    }
+    let id=UUID().uuidString.lowercased()
+    let object:[String:Any]=["schema":"hongai.environment-identity.v1","environmentId":id,"ownerUid":String(getuid()),"dataRootHash":digest,"profileLayout":"v1","createdUtc":ISO8601DateFormatter().string(from:Date()),"hardwareIdentityVirtualized":false]
+    try JSONSerialization.data(withJSONObject:object,options:[.prettyPrinted,.sortedKeys]).write(to:file,options:.atomic)
+    try fm.setAttributes([.posixPermissions:0o600],ofItemAtPath:file.path)
+    return id
 }
 
 struct Handoff: Decodable {
@@ -299,10 +383,14 @@ final class CageController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let start = NSButton(title:"启动 Claude 桌面版", target:nil, action:nil)
     var handoffURL: URL?, workspace: URL?, process: Process?, timer: Timer?
     var broker: SessionBroker?
-    var busy = false, generation = UUID(), nextStorageCheck:UInt64=0
+    var busy = false, generation = UUID(), nextStorageCheck:UInt64=0,nextExitCheck:UInt64=0
+    var sessionOwner:SessionOwnerLease?
+    var networkPaused=false,probeFailures=0
     var statusItem:NSStatusItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        do {let root=FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/HONGAI-CAGE-Desktop");sessionOwner=try SessionOwnerLease(root:root);_=try ensureEnvironmentIdentity(root)}
+        catch {fputs("CAGE_SESSION_ALREADY_RUNNING_OR_OWNER_UNAVAILABLE\n",stderr);exit(17)}
         window = NSWindow(contentRect:NSRect(x:0,y:0,width:700,height:580), styleMask:[.titled,.closable,.miniaturizable], backing:.buffered, defer:false)
         window.title = "HONG AI CAGE · 桌面进程隔离测试版"; window.center()
         window.delegate=self;window.isReleasedWhenClosed=false
@@ -428,7 +516,7 @@ final class CageController: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 DispatchQueue.main.async {
                     do {
                         guard self.generation == token else {broker.stop();return}
-                        try p.run(); self.process=p;self.broker=broker;self.busy=false;self.nextStorageCheck=0
+                        try p.run(); self.process=p;self.broker=broker;self.busy=false;self.nextStorageCheck=0;self.nextExitCheck=DispatchTime.now().uptimeNanoseconds+30_000_000_000;self.networkPaused=false;self.probeFailures=0
                         try admissionData.write(to:enrolled,options:.atomic)
                         try FileManager.default.setAttributes([.posixPermissions:0o600],ofItemAtPath:enrolled.path)
                         try JSONSerialization.data(withJSONObject:["workspace":workspace.path]).write(to:root.appendingPathComponent("workspace.json"),options:.atomic)
@@ -451,6 +539,9 @@ final class CageController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
     func verifyRunning(_ h:Handoff,token:UUID) {
         guard !busy else { return }; busy=true
+        let checkedBroker=broker
+        if checkedBroker?.isPaused == true && !networkPaused {networkPaused=true;nextExitCheck=0}
+        if !networkPaused {broker?.refresh()}
         DispatchQueue.global(qos:.utility).async {
             do {
                 if DispatchTime.now().uptimeNanoseconds >= self.nextStorageCheck {
@@ -458,8 +549,23 @@ final class CageController: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     try checkStorageBudget(root,maximumBytes:9*1024*1024*1024)
                     self.nextStorageCheck=DispatchTime.now().uptimeNanoseconds+30_000_000_000
                 }
-                try CageRuntime.verifyExit(h)
-                DispatchQueue.main.async {if self.generation == token {self.broker?.refresh()};self.busy=false}
+                if DispatchTime.now().uptimeNanoseconds >= self.nextExitCheck {
+                    do {
+                        for _ in 0..<(self.networkPaused ? 3 : 1) {try CageRuntime.verifyExit(h)}
+                        DispatchQueue.main.async {
+                            if self.generation == token {self.broker?.resume();self.networkPaused=false;self.probeFailures=0;self.nextExitCheck=DispatchTime.now().uptimeNanoseconds+30_000_000_000;self.status.stringValue="隔离会话运行中；已重新核对指定出口。";CageRuntime.record("RUNNING","Verified original gateway; no alternate route")}
+                            self.busy=false
+                        }
+                    }catch{
+                        // Block the data plane immediately; preserve UI/work so
+                        // transient probe errors do not kill a healthy app.
+                        checkedBroker?.suspend()
+                        DispatchQueue.main.async {
+                            if self.generation == token {self.networkPaused=true;self.probeFailures+=1;self.nextExitCheck=DispatchTime.now().uptimeNanoseconds+UInt64(min(120,30*(1<<min(2,self.probeFailures))))*1_000_000_000;self.status.stringValue="网络已暂停，Claude 保留；只复核原入口，不切换其他出口。";CageRuntime.record("NETWORK_PAUSED","Gateway closed pending three successful checks of original exit")}
+                            self.busy=false
+                        }
+                    }
+                }else{DispatchQueue.main.async {self.busy=false}}
             }
             catch { DispatchQueue.main.async { if self.generation == token { self.stopSession(); self.status.stringValue="代理不可用或出口变化，会话已停止。" } } }
         }
@@ -474,6 +580,9 @@ final class CageController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationWillTerminate(_ notification:Notification) {stopSession()}
 }
 
+if CommandLine.arguments.contains("--auth-diagnostics") {
+    do {print(try authDiagnostics());exit(0)}catch{fputs("AUTH_DIAGNOSTICS_FAILED_NO_RAW_CONTENT_EXPORTED\n",stderr);exit(1)}
+}
 if CommandLine.arguments.contains("--official-install-smoke-test") {
     guard ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] == "true",ProcessInfo.processInfo.environment["RUNNER_OS"] == "macOS" else {exit(64)}
     do {

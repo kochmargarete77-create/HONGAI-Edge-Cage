@@ -4,7 +4,7 @@ $ErrorActionPreference='Stop'
 if($env:GITHUB_ACTIONS -ne 'true'){throw 'DISPOSABLE_CI_ONLY'}
 $output=Join-Path $PSScriptRoot 'integrated-build'
 if(-not $FreshEngine){& (Join-Path $PSScriptRoot 'Build-Installer.ps1') -Destination $output}
-$setup=Join-Path $output 'HONGAI-CAGE-Desktop-0.3.0-pilot.4-Windows-x64-Setup.exe'
+$setup=Join-Path $output 'HONGAI-CAGE-Desktop-0.3.0-pilot.5-Windows-x64-Setup.exe'
 $target=if($FreshEngine){'D:\HONGAI-CAGE-Fresh-QA\Desktop'}else{'D:\HONGAI-CAGE-Integrated-QA\Desktop'}
 $prefix=if($FreshEngine){'fresh-'}else{''}
 $env:HONGAI_CAGE_CI_RESULT=Join-Path $output ($prefix+'installer-result.json')
@@ -21,6 +21,12 @@ $stop=Join-Path $data 'signals\qa.stop'
 $test=[ordered]@{installer=$false;session=$false;nativeUI=$false;dailyAutomaticLaunch=$false;uninstall=$false;loginAttempted=$false;hostNetworkSettingsChanged=$false;customerAccepted=$false}
 try{
     $test.installer=$true
+    $shortcutDir=Join-Path (Split-Path $target -Parent) 'Shortcut-QA';$null=New-Item -ItemType Directory -Path $shortcutDir -Force
+    $shell=New-Object -ComObject WScript.Shell;$linkFile=Join-Path $shortcutDir 'HONG AI CAGE.lnk';$stale=$shell.CreateShortcut($linkFile);$stale.Arguments='-File old-open-cage.ps1';$stale.Save()
+    & (Join-Path $target 'New-DesktopShortcut.ps1') -InstallRoot $target -DesktopDirectory $shortcutDir
+    $link=$shell.CreateShortcut($linkFile)
+    if($link.Arguments -ne '' -or $link.TargetPath -ine (Join-Path $target 'HONGAI-CAGE.exe') -or $link.IconLocation -ine ((Join-Path $target 'resources\Claude.ico')+',0')){throw 'OFFICIAL_ICON_OR_SHORTCUT_REPAIR_FAILED'}
+    Write-Host 'PASS official icon shortcut repair clears stale arguments without changing protected launcher'
     $sessionArguments='-NoLogo -NoProfile -ExecutionPolicy Bypass -File "'+(Join-Path $target 'Run-Session.ps1')+'" -DataRoot "'+$data+'" -Workspace "'+$workspace+'" -HandoffPath "'+$handoff+'" -StopFile "'+$stop+'" -MaximumSessionSeconds 45 -OfflineAcceptance'
     $session=Start-Process -FilePath "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" -ArgumentList $sessionArguments -PassThru -WindowStyle Hidden
     if(-not $session.WaitForExit(180000)){$session.Kill();throw 'INSTALLED_SESSION_LIFECYCLE_TIMEOUT'}

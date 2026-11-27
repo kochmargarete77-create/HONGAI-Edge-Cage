@@ -38,26 +38,32 @@ namespace HongAi {
         private readonly Timer expiry;
         private long validUntil;
         private bool stopped;
+        private bool paused;
         public int Port {get;private set;}
+        public bool IsPaused {get{lock(gate){return paused;}}}
         public SessionProxy(int upstreamPort,int leaseMilliseconds) {
             if(upstreamPort<1024||upstreamPort>65535)throw new ArgumentOutOfRangeException("upstreamPort");
             upstream=upstreamPort;Refresh(leaseMilliseconds);listener.Start(32);Port=((IPEndPoint)listener.LocalEndpoint).Port;
-            expiry=new Timer(delegate{if(Stopwatch.GetTimestamp()>=Interlocked.Read(ref validUntil))Dispose();},null,250,250);
+            expiry=new Timer(delegate{lock(gate){if(!paused&&Stopwatch.GetTimestamp()>=Interlocked.Read(ref validUntil))Suspend();}},null,250,250);
             Task.Run((Func<Task>)Accept);
         }
-        public void Refresh(int milliseconds){if(milliseconds<500||milliseconds>30000)throw new ArgumentOutOfRangeException("milliseconds");lock(gate){if(stopped)throw new ObjectDisposedException("session proxy");Interlocked.Exchange(ref validUntil,Stopwatch.GetTimestamp()+(long)milliseconds*Stopwatch.Frequency/1000);}}
+        public void Refresh(int milliseconds){if(milliseconds<500||milliseconds>30000)throw new ArgumentOutOfRangeException("milliseconds");lock(gate){if(stopped)throw new ObjectDisposedException("session proxy");if(!paused)Interlocked.Exchange(ref validUntil,Stopwatch.GetTimestamp()+(long)milliseconds*Stopwatch.Frequency/1000);}}
+        // Pausing closes existing tunnels immediately but preserves the bound
+        // listener/port. Only the trusted supervisor can resume after recheck.
+        public void Suspend(){lock(gate){if(stopped)return;paused=true;Interlocked.Exchange(ref validUntil,0);foreach(TcpClient client in clients)client.Close();clients.Clear();}}
+        public void Resume(int milliseconds){if(milliseconds<500||milliseconds>30000)throw new ArgumentOutOfRangeException("milliseconds");lock(gate){if(stopped)throw new ObjectDisposedException("session proxy");paused=false;Refresh(milliseconds);}}
         private async Task Accept(){
             while(true){
                 TcpClient incoming;
                 try{incoming=await listener.AcceptTcpClientAsync().ConfigureAwait(false);}catch{return;}
-                lock(gate){if(stopped||clients.Count>=64||Stopwatch.GetTimestamp()>=Interlocked.Read(ref validUntil)){incoming.Close();continue;}clients.Add(incoming);}
+                lock(gate){if(stopped||paused||clients.Count>=64||Stopwatch.GetTimestamp()>=Interlocked.Read(ref validUntil)){incoming.Close();continue;}clients.Add(incoming);}
                 Task.Run(()=>Forward(incoming));
             }
         }
         private async Task Forward(TcpClient incoming){
             TcpClient outgoing=new TcpClient(AddressFamily.InterNetwork);
             try{
-                lock(gate){if(stopped)return;clients.Add(outgoing);}
+                lock(gate){if(stopped||paused||Stopwatch.GetTimestamp()>=Interlocked.Read(ref validUntil))return;clients.Add(outgoing);}
                 Task<byte[]> headerTask=ReadHeader(incoming.GetStream());
                 if(await Task.WhenAny(headerTask,Task.Delay(5000)).ConfigureAwait(false)!=headerTask)return;
                 byte[] header=await headerTask.ConfigureAwait(false);

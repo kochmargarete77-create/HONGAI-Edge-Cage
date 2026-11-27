@@ -41,7 +41,8 @@ function Check-Fixture([string]$mode,[int]$port,[int]$expected,[string]$label){
     $script:results += $label;Write-Host "PASS $label"
 }
 try{
-    foreach($folder in 'reports','private','workspace'){$null=New-Item -ItemType Directory -Path (Join-Path $root $folder) -Force}
+    foreach($folder in 'reports','private','workspace','readonly-runtime'){$null=New-Item -ItemType Directory -Path (Join-Path $root $folder) -Force}
+    [IO.File]::WriteAllText((Join-Path $root 'readonly-runtime\official-marker.txt'),'owned immutable runtime fixture')
     [IO.File]::WriteAllText((Join-Path $root 'private\secret.txt'),'own fixture only')
     $compiler="$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
     & $compiler /nologo /platform:x64 /target:exe ("/out:"+(Join-Path $root 'fixture.exe')) (Join-Path $PSScriptRoot 'Fixture.cs')
@@ -60,6 +61,7 @@ try{
     Set-Box $box 'OpenFilePath' (Join-Path $root 'reports\*')
     Set-Box $box 'OpenFilePath' (Join-Path $root 'workspace\*') -Append
     Set-Box $box 'ClosedFilePath' (Join-Path $root 'private\*')
+    Set-Box $box 'ReadFilePath' (Join-Path $root 'readonly-runtime\*')
     $wfp=(& $ini query GlobalSettings NetworkEnableWFP|Out-String).Trim()
     if($wfp -ne 'y'){throw 'KERNEL_CONFIGURATION_READBACK_FAILED'}
     # The engine is a fresh installation on this disposable runner. Restart its
@@ -76,6 +78,7 @@ try{
     Check-Fixture 'nested' $other 13 'different MCP-like child cannot bypass network rule'
     Check-Fixture 'read-secret' $port 13 'ungranted host fixture is unreadable'
     Check-Fixture 'workspace' $port 0 'approved workspace remains usable'
+    Check-Fixture 'write-runtime' $port 13 'updated signed runtime stays immutable inside the box'
     Check-Fixture 'try-change-policy' $port 0 'sandboxed tool configuration change attempt completed'
     $activeRules=(& $ini query $box NetworkAccess | Out-String)
     if($activeRules -notmatch '\*,Block' -or $activeRules -notmatch [regex]::Escape("Port=$port;Address=127.0.0.1;Protocol=TCP")){throw 'SANDBOXED_TOOL_CHANGED_HOST_NETWORK_RULES'}

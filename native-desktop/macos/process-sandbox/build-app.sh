@@ -22,11 +22,24 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 <key>CFBundleExecutable</key><string>HongAICage</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>0.3.0</string>
-<key>CFBundleVersion</key><string>9</string>
+<key>CFBundleVersion</key><string>10</string>
+<key>CFBundleIconFile</key><string>Claude.icns</string>
+<key>LSMultipleInstancesProhibited</key><true/>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
 PLIST
+python3 - "$app" "$destination/official-fixture/Claude.app" <<'PY'
+import pathlib,plistlib,shutil,sys
+target,source=map(pathlib.Path,sys.argv[1:])
+with (source/'Contents/Info.plist').open('rb') as f: info=plistlib.load(f)
+name=info.get('CFBundleIconFile','')
+if not name or pathlib.PurePath(name).name!=name: raise RuntimeError('OFFICIAL_ICON_NAME_INVALID')
+if not name.endswith('.icns'): name+='.icns'
+icon=source/'Contents/Resources'/name
+if not icon.is_file(): raise RuntimeError('OFFICIAL_ICON_SOURCE_MISSING')
+shutil.copyfile(icon,target/'Contents/Resources/Claude.icns')
+PY
 /usr/bin/codesign --force --sign - "$app/Contents/Helpers/CageSession"
 /usr/bin/codesign --force --sign - "$app"
 /usr/bin/codesign --verify --strict "$app"

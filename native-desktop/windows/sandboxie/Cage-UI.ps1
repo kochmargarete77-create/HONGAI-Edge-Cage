@@ -72,9 +72,9 @@ $timer.Add_Tick({
     }
     if($script:worker){
         $path=Join-Path $data 'session-status.json'
-        if(Test-Path $path){try{$state=Get-Content $path -Raw -Encoding UTF8|ConvertFrom-Json;switch($state.phase){'RUNNING'{$status.Text='隔离会话运行中；已核对出口：'+$state.exitIp;if($DailyLaunchSmokeTest -and -not $form.Visible -and $state.runtimeCacheReused){$script:dailyObserved=$true}}'BLOCKED'{$status.Text='会话已停止：'+$state.error}'STOPPED'{$status.Text='本次隔离会话已关闭。'}}}catch{}}
+        if(Test-Path $path){try{$state=Get-Content $path -Raw -Encoding UTF8|ConvertFrom-Json;switch($state.phase){'RUNNING'{$status.Text='隔离会话运行中；已核对出口：'+$state.exitIp;if($DailyLaunchSmokeTest -and -not $form.Visible -and $state.runtimeCacheReused){$script:dailyObserved=$true}}'NETWORK_PAUSED'{$status.Text='网络已暂停，Claude 保留；正在复核原入口，不会切换其他出口。'}'BLOCKED'{$status.Text='会话已停止：'+$state.error}'STOPPED'{$status.Text='本次隔离会话已关闭。'}}}catch{}}
         if($script:worker.HasExited){
-            if($script:worker.ExitCode -ne 0){$form.Show();$form.WindowState='Normal';$form.Activate();if(-not $status.Text.StartsWith('会话已停止：')){$status.Text='启动未完成，请查看本机 session-status.json；已保存的配置不需要重新选择。'}}
+            if($script:worker.ExitCode -ne 0){$form.Show();$form.WindowState='Normal';$form.Activate();if(-not $status.Text.StartsWith('会话已停止：')){$status.Text='本次启动未完成；若已有会话仍在运行，其状态未被覆盖。请查看本机 session-status.json。'}}
             $start.Enabled=$true;$update.Enabled=$true;$import.Enabled=$true;$folder.Enabled=$true;$stop.Enabled=$false;$script:worker.Dispose();$script:worker=$null;$script:chosenHandoff=$null
             if($DailyLaunchSmokeTest){[IO.File]::WriteAllText((Join-Path $data 'daily-launch-test.json'),(@{automaticLaunch=$script:dailyObserved;settingsVisible=$form.Visible;loginAttempted=$false}|ConvertTo-Json),[Text.UTF8Encoding]::new($false));$script:userExit=$true;$form.Close()}
         }

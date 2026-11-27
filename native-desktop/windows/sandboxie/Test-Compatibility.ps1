@@ -8,6 +8,7 @@ $cpu=Get-CimInstance Win32_Processor|Select-Object -First 1
 Add-Check 'Windows version' $(if([int]$os.BuildNumber -ge 19041){'PASS'}else{'BLOCK'}) 'Windows 10 build 19041 or newer is required by the current official Claude package.'
 Add-Check 'CPU architecture' $(if($cpu.Architecture -eq 9){'PASS'}else{'BLOCK'}) 'This engine supports x64 Windows. ARM64 Windows is not accepted by this installer.'
 Add-Check 'PowerShell' $(if($PSVersionTable.PSEdition -eq 'Desktop' -and $PSVersionTable.PSVersion.Major -eq 5){'PASS'}else{'BLOCK'}) 'Use the bundled EXE; it selects Windows PowerShell 5.1 automatically.'
+Add-Check 'Execution policy environment' $(if($ExecutionContext.SessionState.LanguageMode -eq 'FullLanguage'){'PASS'}else{'BLOCK'}) 'This build requires ordinary application execution. Do not disable Smart App Control, WDAC, Defender, SIP or Gatekeeper to make installation pass; publisher approval/signing or a compatible release is required.'
 Add-Check 'AppX commands' $(if(Get-Command Get-AppxPackage -ErrorAction SilentlyContinue){'PASS'}else{'BLOCK'}) 'Windows AppX deployment components must be available. Do not reset AppX or remove application data automatically.'
 Add-Check '.NET Framework' $(if(Test-Path "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"){'PASS'}else{'BLOCK'}) 'Windows .NET Framework 4.x is required. No Python, Node, Homebrew, WSL or virtual machine is required.'
 $service=Get-Service SbieSvc -ErrorAction SilentlyContinue

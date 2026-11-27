@@ -8,6 +8,7 @@ $env:TEMP=Join-Path $Destination '.tmp';$env:TMP=$env:TEMP;$null=New-Item -ItemT
 $runtime=Join-Path $stage 'payload'
 & (Join-Path $PSScriptRoot 'Build-Runtime.ps1') -LegacyRuntime $LegacyRuntime -Destination $runtime|Out-Null
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Uninstall-Cage.ps1') -Destination $runtime
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'New-DesktopShortcut.ps1') -Destination $runtime
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Install-Cage.ps1') -Destination $stage
 foreach($dependency in @('Test-Compatibility.ps1','Ensure-Official.ps1','Official-Catalog.json')){Copy-Item -LiteralPath (Join-Path $PSScriptRoot $dependency) -Destination $stage}
 $vendor=Join-Path $stage 'vendor';$null=New-Item -ItemType Directory -Path $vendor
@@ -24,9 +25,9 @@ $hashes=Get-ChildItem -LiteralPath $stage -File -Recurse|Where-Object {$_.FullNa
 [IO.File]::WriteAllLines((Join-Path $stage 'CHECKSUMS-SHA256.txt'),$hashes,[Text.UTF8Encoding]::new($false))
 $zip=Join-Path $Destination 'payload.zip';Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip -CompressionLevel Optimal
 $hashFile=Join-Path $Destination 'payload.sha256';[IO.File]::WriteAllText($hashFile,(Get-FileHash $zip).Hash,[Text.UTF8Encoding]::new($false))
-$setup=Join-Path $Destination 'HONGAI-CAGE-Desktop-0.3.0-pilot.4-Windows-x64-Setup.exe'
+$setup=Join-Path $Destination 'HONGAI-CAGE-Desktop-0.3.0-pilot.5-Windows-x64-Setup.exe'
 $compiler="$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
-& $compiler /nologo /platform:x64 /target:winexe /optimize+ /r:System.Windows.Forms.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll ("/resource:"+$zip+',cage.payload') ("/resource:"+$hashFile+',cage.hash') ("/out:"+$setup) (Join-Path $PSScriptRoot 'CageSetup.cs')
+& $compiler /nologo /platform:x64 /target:winexe /optimize+ /r:System.Windows.Forms.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll ("/win32icon:"+(Join-Path $runtime 'resources\Claude.ico')) ("/resource:"+$zip+',cage.payload') ("/resource:"+$hashFile+',cage.hash') ("/out:"+$setup) (Join-Path $PSScriptRoot 'CageSetup.cs')
 if($LASTEXITCODE -ne 0){throw 'CAGE_INSTALLER_COMPILE_FAILED'}
-$manifest=[ordered]@{product='HONG AI CAGE Desktop';version='0.3.0-pilot.4';sha256=(Get-FileHash $setup).Hash;bytes=(Get-Item $setup).Length;thirdParty='unmodified signed Sandboxie Classic core, GPLv3';officialVersion=(Get-Content (Join-Path $stage 'Official-Catalog.json') -Raw|ConvertFrom-Json).windowsX64.version;officialDownload='only when missing or older; SHA256 and Anthropic signature required';customerAccepted=$false;loginAcceptance='NOT_RUN';coworkEnabled=$false;globalNetworkChanges=0}
+$manifest=[ordered]@{product='HONG AI CAGE Desktop';version='0.3.0-pilot.5';sha256=(Get-FileHash $setup).Hash;bytes=(Get-Item $setup).Length;thirdParty='unmodified signed Sandboxie Classic core, GPLv3';officialVersion=(Get-Content (Join-Path $stage 'Official-Catalog.json') -Raw|ConvertFrom-Json).windowsX64.version;officialDownload='only when missing or older; SHA256 and Anthropic signature required';customerAccepted=$false;loginAcceptance='NOT_RUN';coworkEnabled=$false;globalNetworkChanges=0}
 [IO.File]::WriteAllText($setup+'.json',($manifest|ConvertTo-Json),[Text.UTF8Encoding]::new($false));$manifest|ConvertTo-Json

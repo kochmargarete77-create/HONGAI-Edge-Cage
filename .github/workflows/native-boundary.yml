@@ -30,7 +30,9 @@ jobs:
         run: python3 process-sandbox/test_process_sandbox.py
       - name: Build universal native desktop launcher and installer
         working-directory: native-desktop/macos
-        run: bash process-sandbox/build-app.sh
+        run: |
+          python3 process-sandbox/test_official_desktop.py --prepare-source
+          bash process-sandbox/build-app.sh
       - name: Official Claude Desktop offline start in production process sandbox
         working-directory: native-desktop/macos
         run: python3 process-sandbox/test_official_desktop.py

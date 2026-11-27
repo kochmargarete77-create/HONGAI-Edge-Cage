@@ -12,6 +12,7 @@ import subprocess
 import tempfile
 import time
 import urllib.request
+import sys
 
 
 def run(command, **kwargs):
@@ -19,21 +20,27 @@ def run(command, **kwargs):
 
 
 def main():
+    if os.environ.get('GITHUB_ACTIONS')!='true' or os.environ.get('RUNNER_OS')!='macOS':
+        raise RuntimeError('DISPOSABLE_MAC_CI_ONLY')
+    prepare_only='--prepare-source' in sys.argv
+    fixture=pathlib.Path(__file__).resolve().parent / 'build/official-fixture/Claude.app'
+    reuse=fixture.exists()
     with tempfile.TemporaryDirectory(prefix="hongai-official-desktop-") as temp:
         root = pathlib.Path(temp).resolve()
         image = root / "Claude.zip"
         # Official CDN release, SHA independently pinned from Homebrew's published cask.
         url = "https://downloads.claude.ai/releases/darwin/universal/7.37095.0/Claude-bc368c812ec26d3a5740519cc4d5cb69bbe43025.zip"
         expected_sha = "800806556cacece6bdacbb9f3aef1849a9ed8d6fc2ee0eb2ed881a098d094eab"
-        with urllib.request.urlopen(url, timeout=60) as response, image.open("wb") as output:
-            if not response.url.startswith("https://"):
-                raise RuntimeError("OFFICIAL_DOWNLOAD_REQUIRES_TLS")
-            shutil.copyfileobj(response, output, 1024 * 1024)
-        with image.open("rb") as source:
-            actual_sha = hashlib.file_digest(source, "sha256").hexdigest()
-        if actual_sha != expected_sha:
-            raise RuntimeError("OFFICIAL_DOWNLOAD_HASH_MISMATCH")
-        print("OFFICIAL_ZIP_SHA256", actual_sha, flush=True)
+        if not reuse:
+            with urllib.request.urlopen(url, timeout=60) as response, image.open("wb") as output:
+                if not response.url.startswith("https://"):
+                    raise RuntimeError("OFFICIAL_DOWNLOAD_REQUIRES_TLS")
+                shutil.copyfileobj(response, output, 1024 * 1024)
+            with image.open("rb") as source:
+                actual_sha = hashlib.file_digest(source, "sha256").hexdigest()
+            if actual_sha != expected_sha:
+                raise RuntimeError("OFFICIAL_DOWNLOAD_HASH_MISMATCH")
+            print("OFFICIAL_ZIP_SHA256", actual_sha, flush=True)
         mount = root / "mounted"
         mount.mkdir()
         mounted = False
@@ -43,8 +50,9 @@ def main():
         endpoint.bind(("127.0.0.1", 0))
         port = endpoint.getsockname()[1]
         try:
-            run(["/usr/bin/ditto", "-x", "-k", str(image), str(mount)])
-            source = mount / "Claude.app"
+            if not reuse:
+                run(["/usr/bin/ditto", "-x", "-k", str(image), str(mount)])
+            source = fixture if reuse else mount / "Claude.app"
             app = root / "Claude.app"
             run(["/usr/bin/ditto", str(source), str(app)])
             run(["/usr/bin/codesign", "--verify", "--deep", "--strict", "--verbose=2", str(app)])
@@ -55,9 +63,12 @@ def main():
                 raise RuntimeError("EXPECTED_ANTHROPIC_SIGNING_AUTHORITY")
             print("OFFICIAL_SIGNING", " | ".join(x for x in details.splitlines() if x.startswith(("Identifier=", "Authority=", "TeamIdentifier=", "CDHash="))), flush=True)
             info = plistlib.loads((app / "Contents/Info.plist").read_bytes())
-            fixture=pathlib.Path(__file__).resolve().parent / "build/official-fixture/Claude.app"
-            fixture.parent.mkdir(parents=True,exist_ok=True)
-            run(["/usr/bin/ditto",str(app),str(fixture)])
+            if not reuse:
+                fixture.parent.mkdir(parents=True,exist_ok=True)
+                run(["/usr/bin/ditto",str(app),str(fixture)])
+            if prepare_only:
+                print('PASS signed official source prepared for build assets',flush=True)
+                return
             executable = app / "Contents/MacOS" / info["CFBundleExecutable"]
             workspace = root / "workspace"
             workspace.mkdir()

@@ -5,6 +5,8 @@ if($PSVersionTable.PSEdition -eq 'Desktop'){$env:PSModulePath=(Join-Path $env:WI
 $report=[ordered]@{installed=$false;phase='VERIFY';hostNetworkSettingsChanged=$false;rebootPerformed=$false;customerAccepted=$false}
 try {
     if(-not [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'ADMIN_REQUIRED_FOR_SIGNED_ISOLATION_COMPONENT'}
+    $uiWorkers=@(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue|Where-Object {$_.ProcessId -ne $PID -and $_.CommandLine -match '(?i)Cage-UI\.ps1'})
+    if($uiWorkers.Count -or @(Get-Process 'HONGAI-CAGE' -ErrorAction SilentlyContinue).Count){throw 'EXIT_RUNNING_CAGE_BEFORE_UPGRADE_NO_AUTOMATIC_PROCESS_TERMINATION'}
     if(-not $OriginalUserSid){$OriginalUserSid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value}
     $ownerSid=[Security.Principal.SecurityIdentifier]::new($OriginalUserSid)
     if(-not $OriginalDesktop){$OriginalDesktop=[Environment]::GetFolderPath('Desktop')}
@@ -78,7 +80,7 @@ try {
     Set-Acl -LiteralPath $data -AclObject $acl
     $stage=$target+'.stage-'+[guid]::NewGuid().ToString('N');$null=New-Item -ItemType Directory -Path $stage
     Copy-Item -Path (Join-Path $payload '*') -Destination $stage -Recurse
-    $receipt=[ordered]@{schema='hongai.cage.installation.v1';version='0.3.0-pilot.4';ownerSid=$ownerSid.Value;installRoot=$target;dataRoot=$data;enginePath=$core;engineFreshlyInstalled=$fresh;installedUtc=[datetime]::UtcNow.ToString('o');customerAccepted=$false}
+    $receipt=[ordered]@{schema='hongai.cage.installation.v1';version='0.3.0-pilot.5';ownerSid=$ownerSid.Value;installRoot=$target;dataRoot=$data;enginePath=$core;engineFreshlyInstalled=$fresh;installedUtc=[datetime]::UtcNow.ToString('o');customerAccepted=$false}
     $json=$receipt|ConvertTo-Json
     [IO.File]::WriteAllText((Join-Path $stage 'installation.json'),$json,[Text.UTF8Encoding]::new($false))
     $backup=$null
@@ -93,7 +95,7 @@ try {
         if(Test-Path -LiteralPath $target){$failed=Join-Path $parent ('Desktop.failed-'+[guid]::NewGuid().ToString('N'));if([IO.Path]::GetDirectoryName($target) -cne $parent){throw 'UPGRADE_ROLLBACK_SCOPE_MISMATCH'};Move-Item -LiteralPath $target -Destination $failed}
         if($backup -and -not(Test-Path $target)){Move-Item -LiteralPath $backup -Destination $target};throw
     }
-    if(-not $NoShortcut){$shell=New-Object -ComObject WScript.Shell;$link=$shell.CreateShortcut((Join-Path $OriginalDesktop 'HONG AI CAGE.lnk'));$link.TargetPath=Join-Path $target 'HONGAI-CAGE.exe';$link.WorkingDirectory=$target;$link.Description='HONG AI official desktop isolation workbench';$link.Save()}
+    if(-not $NoShortcut){& (Join-Path $target 'New-DesktopShortcut.ps1') -InstallRoot $target -DesktopDirectory $OriginalDesktop}
     $report.installed=$true;$report.phase='INSTALLED';$report.installRoot=$target;$report.dataRoot=$data;$report.enginePath=$core;$report.version=$receipt.version;$report.officialVersion=[string]$official.Version
 }catch{$report.error=$_.Exception.Message;throw}
 finally{if($ResultPath){[IO.File]::WriteAllText($ResultPath,($report|ConvertTo-Json),[Text.UTF8Encoding]::new($false))};$report|ConvertTo-Json}
