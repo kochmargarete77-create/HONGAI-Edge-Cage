@@ -247,6 +247,9 @@ enum CageRuntime {
         let trustedRoot=home.appendingPathComponent("Library/Application Support/HONGAI-CAGE-Desktop")
         for name in ["enrolled-handoff.json","workspace.json","boundary.sb"] {result += "(deny file-write* (literal \"\(trustedRoot.appendingPathComponent(name).path)\"))\n"}
         result += "(deny file-write* (require-all (subpath \"\(trustedRoot.path)\") (require-not (subpath \"\(trustedRoot.appendingPathComponent("profile").path)\")) (require-not (subpath \"\(trustedRoot.appendingPathComponent("temp").path)\")) (require-not (subpath \"\(trustedRoot.appendingPathComponent("tool-home").path)\"))))\n"
+        for original in ["/Applications/Claude.app",home.appendingPathComponent("Applications/Claude.app").path] {
+            result += #"(deny file-write* (subpath "\#(original)"))"# + "\n"
+        }
         return result
     }
 }
@@ -267,7 +270,7 @@ func checkStorageBudget(_ root:URL,maximumBytes:Int64=3*1024*1024*1024,maximumEn
         do {values=try file.resourceValues(forKeys:keys)} catch {if disappeared(error){continue};throw error}
         if values.isSymbolicLink == true {iterator.skipDescendants();continue}
         if values.isRegularFile == true {bytes+=Int64(values.fileSize ?? 0)}
-        if bytes > maximumBytes {throw CageFailure("隔离数据超过 3 GB 软容量预算，会话已停止；客户文件未删除。")}
+        if bytes > maximumBytes {throw CageFailure("隔离数据超过软容量预算，会话已停止；客户文件未删除。")}
     }
     if failed {throw CageFailure("隔离存储检查未完成，会话已停止。")}
 }
