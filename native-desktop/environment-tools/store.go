@@ -279,6 +279,16 @@ func commandBinding(node map[string]any, policy Policy) (Binding, error) {
 			}
 			env[k] = s
 		}
+		if runtime.GOOS == "windows" {
+			seen := map[string]bool{}
+			for key := range env {
+				folded := strings.ToUpper(key)
+				if seen[folded] {
+					return Binding{}, errors.New("UPSTREAM_ENVIRONMENT_CASE_COLLISION")
+				}
+				seen[folded] = true
+			}
+		}
 	}
 	return Binding{Version: 1, Program: program, Args: args, Env: env, Policy: policy}, nil
 }

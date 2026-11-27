@@ -10,12 +10,49 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
 )
 
 var ioReadFull = io.ReadFull
+
+func mergedEnvironment(base []string, override map[string]string, fold bool) []string {
+	values := map[string]string{}
+	keyOf := func(s string) string {
+		if fold {
+			return strings.ToUpper(s)
+		}
+		return s
+	}
+	for _, entry := range base {
+		split := strings.IndexByte(entry, '=')
+		if split == 0 {
+			if p := strings.IndexByte(entry[1:], '='); p >= 0 {
+				split = p + 1
+			}
+		}
+		if split < 1 {
+			continue
+		}
+		values[keyOf(entry[:split])] = entry[split+1:]
+	}
+	for key, value := range override {
+		values[keyOf(key)] = value
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	out := make([]string, 0, len(keys))
+	for _, key := range keys {
+		out = append(out, key+"="+values[key])
+	}
+	return out
+}
 
 func loadBinding(file, root string) (Binding, error) {
 	var binding Binding
@@ -57,19 +94,7 @@ func runBridge(ctx context.Context, b Binding, input io.Reader, output io.Writer
 	defer cancel()
 	cmd := exec.CommandContext(ctx, b.Program, b.Args...)
 	cmd.WaitDelay = 2 * time.Second
-	env := map[string]string{}
-	for _, entry := range os.Environ() {
-		key, val, ok := strings.Cut(entry, "=")
-		if ok {
-			env[key] = val
-		}
-	}
-	for key, val := range b.Env {
-		env[key] = val
-	}
-	for key, val := range env {
-		cmd.Env = append(cmd.Env, key+"="+val)
-	}
+	cmd.Env = mergedEnvironment(os.Environ(), b.Env, runtime.GOOS == "windows")
 	childIn, e := cmd.StdinPipe()
 	if e != nil {
 		return stats, errors.New("UPSTREAM_PIPE_FAILED")
