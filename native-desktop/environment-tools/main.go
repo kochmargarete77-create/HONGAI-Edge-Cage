@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"time"
 )
 
 const version = "0.1.0-tools-preview"
@@ -25,6 +26,8 @@ func execute(args []string) error {
 	bindingFile := flags.String("binding", "", "Protected upstream binding")
 	file := flags.String("file", "", "Installer file selected by customer")
 	source := flags.String("declared-source", "", "Operator-declared official HTTPS source")
+	directory := flags.String("directory", "", "Approved download directory")
+	seconds := flags.Int("seconds", 120, "Bounded observation time")
 	if e := flags.Parse(args[1:]); e != nil {
 		return errors.New("INVALID_ARGUMENTS")
 	}
@@ -60,6 +63,17 @@ func execute(args []string) error {
 		return json.NewEncoder(os.Stdout).Encode(r)
 	case "inspect-installer":
 		r, e := inspectInstaller(*file, *source)
+		if e != nil {
+			return e
+		}
+		return json.NewEncoder(os.Stdout).Encode(r)
+	case "watch-downloads":
+		if *seconds < 5 || *seconds > 900 {
+			return errors.New("WATCH_DURATION_MUST_BE_5_TO_900_SECONDS")
+		}
+		watchContext, end := context.WithTimeout(ctx, time.Duration(*seconds)*time.Second)
+		defer end()
+		r, e := watchCandidates(watchContext, *directory, *source, 2*time.Second, 2*time.Second, inspectInstaller)
 		if e != nil {
 			return e
 		}

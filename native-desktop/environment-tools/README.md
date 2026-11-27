@@ -17,6 +17,9 @@ network kill switch, Claude installer, or account-safety certification.
 - Installation changes only a selected MCP configuration, with an encrypted
   byte-identical backup. Repeat installation is idempotent. Restore refuses to
   overwrite configuration changed by the customer after installation.
+- The executable is copied to a stable owned revision before the configuration is
+  committed. Deleting the temporary download/extraction folder does not break the
+  installed server entry. Recovery copies remain after restoring configuration.
 - Windows uses current-user DPAPI with environment-bound entropy. macOS uses
   AES-GCM with a per-environment key in the current user's Keychain. This protects
   storage; it is not a security boundary against arbitrary same-user privileged code.
@@ -24,6 +27,9 @@ network kill switch, Claude installer, or account-safety certification.
   credentials or upstream stderr. No automatic remote upload.
 - Installer intake checks a selected file's publisher signature without running it.
   The source URL is explicitly operator-declared, not fabricated browser-history proof.
+- A bounded observer watches one approved directory for newly arriving stable
+  candidates and performs verification. It does not launch installers or certify
+  that application attachment/first-launch protection is complete.
 
 ## Coverage limits
 
@@ -33,9 +39,10 @@ across messages is implemented. Images, audio, binary resources, resource identi
 cursors and protocol schemas are not rewritten. Binary blocks are counted as uninspected.
 Configured literal matching may redact matching business text: approve each rule carefully.
 
-Current intake supports native Windows EXE/MSIX and macOS PKG publisher checks.
+Current intake supports native Windows EXE/MSIX, macOS PKG publisher checks and
+official macOS `.app` identity/Team-ID verification.
 It does **not** yet validate every installer's product role, orchestrate installation,
-capture arbitrary downloads, or guarantee protection before first application launch.
+capture arbitrary locations, or guarantee protection before first application launch.
 No Claude binary, account or pre-authenticated state is bundled. The official application,
 its package identity and its signed update mechanism are not modified by this component.
 
@@ -53,6 +60,7 @@ user, not SYSTEM/root or a different administrator's user account.
 hongai-tools install --request <absolute-request-path>
 hongai-tools restore --data-root <same-component-data-root>
 hongai-tools inspect-installer --file <selected-file> --declared-source <official-HTTPS-URL>
+hongai-tools watch-downloads --directory <approved-directory> --declared-source <official-HTTPS-URL> --seconds 120
 ```
 
 Do not put the component inside a path that changes on every launch, or delete its

@@ -40,6 +40,9 @@ jobs:
           $env:HONGAI_VALID_INSTALLER_SOURCE='https://downloads.claude.ai/releases/win32/x64/6.28899.6/Claude-2f5fc59b2d1c672dd9dced86720c50f48cca0cf9.msix'
           Invoke-WebRequest -Uri $env:HONGAI_VALID_INSTALLER_SOURCE -OutFile $env:HONGAI_VALID_INSTALLER -TimeoutSec 150
           if((Get-FileHash $env:HONGAI_VALID_INSTALLER).Hash -cne 'D95045A5354F2058FC380B5F1400AD3B66C841692644CB4C0C70CA3D4B6CCD5A'){throw 'OFFICIAL_FIXTURE_HASH_MISMATCH'}
+          $nativePS=Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
+          $env:HONGAI_VERIFY_FILE=$env:HONGAI_VALID_INSTALLER
+          & $nativePS -NoProfile -NonInteractive -Command '$env:PSModulePath=(Join-Path $env:WINDIR "System32\WindowsPowerShell\v1.0\Modules")+";"+(Join-Path $env:ProgramFiles "WindowsPowerShell\Modules");$s=Get-AuthenticodeSignature -LiteralPath $env:HONGAI_VERIFY_FILE;[pscustomobject]@{status=[string]$s.Status;signer=$s.SignerCertificate.GetNameInfo([Security.Cryptography.X509Certificates.X509NameType]::SimpleName,$false)}|ConvertTo-Json -Compress'
           go test -v -count=1 ./... 2>&1|Tee-Object -FilePath dist/native-tests.txt
           if($LASTEXITCODE){throw 'NATIVE_TESTS_FAILED'}
           & $env:HONGAI_TOOL_BINARY version|Out-File dist/component-status.json -Encoding utf8
@@ -56,9 +59,14 @@ jobs:
           export HONGAI_TOOL_BINARY="$(pwd -P)/dist/hongai-tools"
           go build -buildvcs=false -trimpath -ldflags '-s -w' -o "$HONGAI_TOOL_BINARY" .
           codesign --force --sign - --timestamp=none "$HONGAI_TOOL_BINARY"
-          export HONGAI_VALID_INSTALLER="$(cd "$RUNNER_TEMP" && pwd -P)/official-Claude.pkg"
-          export HONGAI_VALID_INSTALLER_SOURCE='https://claude.ai/api/desktop/darwin/universal/pkg/latest/redirect'
-          curl --fail --location --max-time 150 --max-filesize 1200000000 --proto '=https' --proto-redir '=https' "$HONGAI_VALID_INSTALLER_SOURCE" -o "$HONGAI_VALID_INSTALLER"
+          official="$(cd "$RUNNER_TEMP" && pwd -P)/official-fixture"
+          mkdir -p "$official"
+          curl --fail --max-time 30 --proto '=https' 'https://downloads.claude.ai/releases/darwin/universal/RELEASES.json' -o "$official/releases.json"
+          export HONGAI_VALID_INSTALLER_SOURCE="$(python3 -c 'import json,sys,urllib.parse; d=json.load(open(sys.argv[1])); r=next(x for x in d["releases"] if x["version"]==d["currentRelease"]); u=r["updateTo"]["url"]; p=urllib.parse.urlparse(u); assert p.scheme=="https" and p.hostname=="downloads.claude.ai" and not p.query and not p.fragment and p.path.endswith(".zip"); print(u)' "$official/releases.json")"
+          curl --fail --max-time 150 --max-filesize 1200000000 --proto '=https' "$HONGAI_VALID_INSTALLER_SOURCE" -o "$official/Claude.zip"
+          python3 -c 'import zipfile,sys,posixpath; z=zipfile.ZipFile(sys.argv[1]); names=z.namelist(); assert all(not n.startswith("/") and ".." not in n.split("/") for n in names); links=[(i,z.read(i).decode()) for i in z.infolist() if (i.external_attr>>16)&0o170000==0o120000]; assert all(not t.startswith("/") and not posixpath.normpath(posixpath.join(posixpath.dirname(i.filename),t)).startswith("../") for i,t in links)' "$official/Claude.zip"
+          ditto -x -k "$official/Claude.zip" "$official/expanded"
+          export HONGAI_VALID_INSTALLER="$official/expanded/Claude.app"
           go test -v -count=1 ./... 2>&1 | tee dist/native-tests.txt
           GOARCH=amd64 go build -buildvcs=false -trimpath -ldflags '-s -w' -o dist/hongai-tools-amd64 .
           GOARCH=arm64 go build -buildvcs=false -trimpath -ldflags '-s -w' -o dist/hongai-tools-arm64 .

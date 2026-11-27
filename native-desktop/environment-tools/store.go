@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"os/user"
@@ -36,6 +37,40 @@ type Receipt struct {
 	Stage           string `json:"stage"`
 	WrappedServers  int    `json:"wrappedServers"`
 	ConfigCommitted bool   `json:"configCommitted"`
+	RuntimeFile     string `json:"runtimeFile"`
+	RuntimeSHA      string `json:"runtimeSha256"`
+}
+
+func copyRuntime(source, target string) (string, error) {
+	source, e := realPath(source, false)
+	if e != nil {
+		return "", errors.New("CURRENT_RUNTIME_SOURCE_UNAVAILABLE")
+	}
+	in, e := os.Open(source)
+	if e != nil {
+		return "", errors.New("CURRENT_RUNTIME_UNREADABLE")
+	}
+	defer in.Close()
+	info, e := in.Stat()
+	if e != nil || info.Size() < 1 || info.Size() > 32*1024*1024 {
+		return "", errors.New("RUNTIME_SIZE_OUTSIDE_LIMIT")
+	}
+	out, e := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0700)
+	if e != nil {
+		return "", errors.New("RUNTIME_COPY_CREATE_FAILED")
+	}
+	h := sha256.New()
+	n, e := io.Copy(io.MultiWriter(out, h), io.LimitReader(in, 32*1024*1024+1))
+	syncErr := out.Sync()
+	closeErr := out.Close()
+	if e != nil || syncErr != nil || closeErr != nil || n != info.Size() {
+		return "", errors.New("RUNTIME_COPY_INCOMPLETE")
+	}
+	end, e := in.Stat()
+	if e != nil || end.Size() != info.Size() || !end.ModTime().Equal(info.ModTime()) {
+		return "", errors.New("RUNTIME_SOURCE_CHANGED")
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func assertCustomerIdentity() error {
@@ -343,6 +378,15 @@ func install(request Request, self string) (map[string]any, error) {
 	if e = os.Mkdir(stage, 0700); e != nil {
 		return nil, e
 	}
+	runtimeName := "hongai-tools"
+	if runtime.GOOS == "windows" {
+		runtimeName += ".exe"
+	}
+	installedRuntime := filepath.Join(stage, runtimeName)
+	runtimeSHA, e := copyRuntime(self, installedRuntime)
+	if e != nil {
+		return nil, e
+	}
 	backup, e := platformSeal(before, root)
 	if e != nil {
 		return nil, e
@@ -361,7 +405,7 @@ func install(request Request, self string) (map[string]any, error) {
 			return nil, e
 		}
 		node := servers[name].(map[string]any)
-		node["command"] = self
+		node["command"] = installedRuntime
 		node["args"] = []string{"bridge", "--binding", bindingFile, "--data-root", root}
 		delete(node, "env")
 	}
@@ -369,7 +413,7 @@ func install(request Request, self string) (map[string]any, error) {
 	if e != nil {
 		return nil, e
 	}
-	r := Receipt{1, configPath, digest(before), digest(after), digest(policyJSON), stage, len(bindings), false}
+	r := Receipt{Version: 1, ConfigFile: configPath, BeforeSHA: digest(before), AfterSHA: digest(after), PolicySHA: digest(policyJSON), Stage: stage, WrappedServers: len(bindings), ConfigCommitted: false, RuntimeFile: installedRuntime, RuntimeSHA: runtimeSHA}
 	journal, _ := json.MarshalIndent(r, "", "  ")
 	if e = writeNew(pending, journal); e != nil {
 		return nil, e

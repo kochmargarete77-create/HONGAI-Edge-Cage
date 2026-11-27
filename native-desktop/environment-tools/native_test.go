@@ -206,7 +206,7 @@ func TestInstallIdempotenceAndExactRestore(t *testing.T) {
 	}
 	servers := m["mcpServers"].(map[string]any)
 	wrapped := servers["files"].(map[string]any)
-	if wrapped["command"] != wrapper || wrapped["env"] != nil || wrapped["extraClientSetting"] != true || servers["remote-unselected"].(map[string]any)["url"] != "https://example.invalid/mcp" {
+	if wrapped["command"] == wrapper || !strings.HasPrefix(wrapped["command"].(string), request.DataRoot+string(os.PathSeparator)) || wrapped["env"] != nil || wrapped["extraClientSetting"] != true || servers["remote-unselected"].(map[string]any)["url"] != "https://example.invalid/mcp" {
 		t.Fatal("ORIGINAL_CONFIGURATION_SEMANTICS_LOST")
 	}
 	args := wrapped["args"].([]any)
@@ -235,6 +235,7 @@ func TestRestoreRejectsConcurrentCustomerEdit(t *testing.T) {
 	root := testDirectory(t)
 	upstream, _ := os.Executable()
 	request, _ := makeRequest(t, root, upstream)
+	os.WriteFile(filepath.Join(root, "wrapper.exe"), []byte("config-only fixture"), 0700)
 	if _, e := install(request, filepath.Join(root, "wrapper.exe")); e != nil {
 		t.Fatal(e)
 	}
@@ -253,6 +254,7 @@ func TestPendingReceiptRecovery(t *testing.T) {
 	root := testDirectory(t)
 	upstream, _ := os.Executable()
 	request, _ := makeRequest(t, root, upstream)
+	os.WriteFile(filepath.Join(root, "wrapper.exe"), []byte("config-only fixture"), 0700)
 	if _, e := install(request, filepath.Join(root, "wrapper.exe")); e != nil {
 		t.Fatal(e)
 	}
@@ -271,6 +273,14 @@ func TestNativeCLIInstallBridgeAndRestore(t *testing.T) {
 		t.Skip("NATIVE_EXECUTABLE_REQUIRED_FOR_CLI_ACCEPTANCE")
 	}
 	root := testDirectory(t)
+	deploymentCopy := filepath.Join(root, "temporary-install-source")
+	if runtime.GOOS == "windows" {
+		deploymentCopy += ".exe"
+	}
+	if _, e := copyRuntime(binary, deploymentCopy); e != nil {
+		t.Fatal(e)
+	}
+	binary = deploymentCopy
 	upstream, _ := os.Executable()
 	request, original := makeRequest(t, root, upstream)
 	requestFile := filepath.Join(root, "request.json")
@@ -291,6 +301,10 @@ func TestNativeCLIInstallBridgeAndRestore(t *testing.T) {
 	after, _ := readSmall(request.ConfigFile)
 	config, _ := parseObject(after)
 	wrapped := config["mcpServers"].(map[string]any)["files"].(map[string]any)
+	if e := os.Rename(deploymentCopy, deploymentCopy+".removed"); e != nil {
+		t.Fatal("TEST_CANNOT_REMOVE_TEMPORARY_INSTALL_SOURCE", e)
+	}
+	binary = wrapped["command"].(string)
 	rawArgs := wrapped["args"].([]any)
 	args := []string{}
 	for _, v := range rawArgs {

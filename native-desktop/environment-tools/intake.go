@@ -8,12 +8,14 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
 
 func inspectInstaller(file, source string) (map[string]any, error) {
-	p, e := realPath(file, false)
+	isApp := runtime.GOOS == "darwin" && strings.EqualFold(filepath.Ext(file), ".app")
+	p, e := realPath(file, isApp)
 	if e != nil {
 		return nil, e
 	}
@@ -26,6 +28,16 @@ func inspectInstaller(file, source string) (map[string]any, error) {
 		return nil, errors.New("DECLARED_SOURCE_HOST_NOT_APPROVED")
 	}
 	ext := strings.ToLower(filepath.Ext(p))
+	if isApp {
+		if e = verifyOfficialInstaller(p); e != nil {
+			return nil, e
+		}
+		info, e := readSmall(filepath.Join(p, "Contents", "Info.plist"))
+		if e != nil {
+			return nil, e
+		}
+		return map[string]any{"schema": "hongai.official-installer-intake.v1", "phase": "SIGNED_PUBLISHER_VERIFIED_INSTALL_ROLE_PENDING", "artifactKind": "SIGNED_MAC_APPLICATION", "sha256": digest(info), "hashScope": "INFO_PLIST_ONLY_NOT_FULL_APPLICATION_ARCHIVE", "declaredSourceHost": host, "sourceIsOperatorDeclaredNotBrowserHistoryProof": true, "signaturePublisher": "Anthropic", "installerStarted": false, "installationCompleted": false, "initialLaunchProtected": false, "bundledClaudeRuntime": false, "preAuthenticatedStateIncluded": false, "allEnvironmentAdaptersAccepted": false}, nil
+	}
 	if ext != ".exe" && ext != ".msix" && ext != ".pkg" {
 		return nil, errors.New("SIGNED_NATIVE_EXE_MSIX_OR_PKG_REQUIRED")
 	}
