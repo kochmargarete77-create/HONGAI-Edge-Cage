@@ -27,6 +27,9 @@ try{
     $candidates=@('E:\HONGAI-CAGE\Desktop','D:\HONGAI-CAGE\Desktop',(Join-Path $env:ProgramFiles 'HONGAI-CAGE\Desktop'))
     $installed=@()
     foreach($path in $candidates){
+        # Directory.Exists handles absent data drives without a PowerShell
+        # provider exception. C-only client machines are valid candidates.
+        if(-not [IO.Directory]::Exists($path)){continue}
         $file=Join-Path $path 'installation.json'
         if(Test-Path -LiteralPath $file){$receipt=Read-LocalJson $file;if($receipt.schema -cne 'hongai.cage.installation.v1' -or $receipt.installRoot -cne $path -or $receipt.ownerSid -cne $owner){throw 'EXISTING_INSTALLATION_REQUIRES_OWNER_REVIEW'};if($receipt.version -cne '0.3.0-pilot.4'){throw 'INSTALLED_CAGE_VERSION_REVIEW_REQUIRED_NO_AUTOMATIC_REINSTALL'};$installed+= $receipt}
     }
