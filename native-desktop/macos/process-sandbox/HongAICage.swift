@@ -380,6 +380,11 @@ final class CageController: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 p.currentDirectoryURL=workspace
                 p.environment=["PATH":"/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin","HOME":toolHome.path,"TMPDIR":temp.path,"HTTP_PROXY":sessionProxy,"HTTPS_PROXY":sessionProxy,"ALL_PROXY":sessionProxy,"NO_PROXY":"","LANG":"en_US.UTF-8"]
                 p.standardOutput=FileHandle.nullDevice; p.standardError=FileHandle.nullDevice
+                if CommandLine.arguments.contains("--daily-launch-smoke-test"),ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] == "true",ProcessInfo.processInfo.environment["RUNNER_OS"] == "macOS" {
+                    let log=temp.appendingPathComponent("official-daily-start.log")
+                    FileManager.default.createFile(atPath:log.path,contents:nil)
+                    let file=try FileHandle(forWritingTo:log);p.standardOutput=file;p.standardError=file
+                }
                 DispatchQueue.main.async {
                     do {
                         guard self.generation == token else {broker.stop();return}
@@ -393,7 +398,7 @@ final class CageController: NSObject, NSApplicationDelegate, NSWindowDelegate {
                         self.timer=Timer.scheduledTimer(withTimeInterval:4,repeats:true) { _ in self.verifyRunning(h,token:token) }
                         if CommandLine.arguments.contains("--daily-launch-smoke-test"),ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] == "true",ProcessInfo.processInfo.environment["RUNNER_OS"] == "macOS" {
                             DispatchQueue.main.asyncAfter(deadline:.now()+8){
-                                guard p.isRunning,!self.window.isVisible else {fputs("DAILY_LAUNCH_DID_NOT_START_OR_REPEATED_SETTINGS\n",stderr);exit(1)}
+                                guard p.isRunning,!self.window.isVisible else {fputs("DAILY_LAUNCH_DID_NOT_START_OR_REPEATED_SETTINGS running=\(p.isRunning) visible=\(self.window.isVisible) status=\(self.status.stringValue)\n",stderr);exit(1)}
                                 print("PASS daily automatic launch uses saved configuration without showing setup")
                                 self.stopSession();NSApp.terminate(nil)
                             }
@@ -462,6 +467,7 @@ if CommandLine.arguments.contains("--verify-policy") || CommandLine.arguments.co
         exit(0)
     } catch { fputs("\(error)\n",stderr); exit(1) }
 }
+if CommandLine.arguments.contains("--daily-launch-smoke-test"),ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] != "true" || ProcessInfo.processInfo.environment["RUNNER_OS"] != "macOS" {fputs("DAILY_LAUNCH_SMOKE_REQUIRES_DISPOSABLE_CI\n",stderr);exit(64)}
 let application=NSApplication.shared
 let delegate=CageController()
 application.delegate=delegate

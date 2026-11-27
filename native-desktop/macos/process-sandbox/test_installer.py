@@ -11,7 +11,12 @@ import socket
 
 
 def run(command, **kwargs):
-    return subprocess.run(command, check=True, capture_output=True, text=True, timeout=120, **kwargs)
+    result=subprocess.run(command, check=False, capture_output=True, text=True, timeout=120, **kwargs)
+    if result.returncode:
+        print(result.stdout[-6000:],flush=True)
+        print(result.stderr[-6000:],flush=True)
+    result.check_returncode()
+    return result
 
 
 def main():
@@ -59,6 +64,9 @@ def main():
         print(json.dumps({"installer":"PASS","universal":"PASS","signature":"AD_HOC_VALID","nativeUI":"PASS",
                           "loginAttempted":False,"hostNetworkSettingsChanged":False,"customerAccepted":False}),flush=True)
     finally:
+        log=own_data / 'temp/official-daily-start.log'
+        if log.exists():
+            print('OFFICIAL_DAILY_START_DIAGNOSTIC',log.read_text(errors='replace')[-8000:],flush=True)
         if official_added:
             info=plistlib.loads((official / 'Contents/Info.plist').read_bytes())
             if info.get('CFBundleIdentifier') == 'com.anthropic.claudefordesktop' and not official.is_symlink():
