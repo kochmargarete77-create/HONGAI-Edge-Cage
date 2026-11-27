@@ -279,6 +279,69 @@ func environmentTransitionGuard(root string) (func(), error) {
 	var once sync.Once
 	return func() { once.Do(func() { _ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN); _ = f.Close() }) }, nil
 }
+
+// macOS mode bits do not remove an inherited extended ACL. Remove only this
+// component root's ACL, then verify its private mode; never recurse.
+func secureEnvironmentDataRoot(root string) error {
+	canonical, e := realPath(root, true)
+	if e != nil {
+		return e
+	}
+	var owner environmentOwner
+	if decodeFile(filepath.Join(canonical, "environment-owner.json"), &owner) != nil || owner.Schema != "hongai.environment-owner.v1" || !samePath(owner.Root, canonical) || owner.UserID != strconv.Itoa(os.Geteuid()) {
+		return errors.New("ENVIRONMENT_ROOT_OWNERSHIP_REQUIRED")
+	}
+	info, e := os.Lstat(canonical)
+	if e != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("ENVIRONMENT_ROOT_DIRECTORY_INVALID")
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || stat.Uid != uint32(os.Geteuid()) {
+		return errors.New("ENVIRONMENT_ROOT_OWNER_MISMATCH")
+	}
+	ownerFile := filepath.Join(canonical, "environment-owner.json")
+	ownerInfo, e := os.Lstat(ownerFile)
+	if e != nil || !ownerInfo.Mode().IsRegular() {
+		return errors.New("ENVIRONMENT_OWNER_FILE_TYPE_INVALID")
+	}
+	ownerStat, ok := ownerInfo.Sys().(*syscall.Stat_t)
+	if !ok || ownerStat.Uid != uint32(os.Geteuid()) || ownerStat.Nlink != 1 {
+		return errors.New("ENVIRONMENT_OWNER_FILE_OWNERSHIP_INVALID")
+	}
+	if e = os.Chmod(canonical, 0700); e != nil {
+		return errors.New("ENVIRONMENT_ROOT_PRIVATE_MODE_FAILED")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if e = exec.CommandContext(ctx, "/bin/chmod", "-N", canonical).Run(); e != nil {
+		return errors.New("ENVIRONMENT_ROOT_INHERITED_ACL_REMOVE_FAILED")
+	}
+	// This one known metadata file predates root hardening. Its inherited ACL
+	// must be removed separately on macOS; no application or project tree is walked.
+	if e = exec.CommandContext(ctx, "/bin/chmod", "-N", ownerFile).Run(); e != nil {
+		return errors.New("ENVIRONMENT_OWNER_FILE_ACL_REMOVE_FAILED")
+	}
+	if e = os.Chmod(ownerFile, 0600); e != nil {
+		return errors.New("ENVIRONMENT_OWNER_FILE_PRIVATE_MODE_FAILED")
+	}
+	after, e := os.Lstat(canonical)
+	if e != nil || !os.SameFile(info, after) || after.Mode().Perm() != 0700 {
+		return errors.New("ENVIRONMENT_ROOT_PRIVATE_MODE_NOT_VERIFIED")
+	}
+	check, e := exec.CommandContext(ctx, "/bin/ls", "-lde", canonical).Output()
+	if e != nil {
+		return errors.New("ENVIRONMENT_ROOT_ACL_STATUS_UNREADABLE")
+	}
+	fields := strings.Fields(string(check))
+	if len(fields) == 0 || strings.Contains(fields[0], "+") {
+		return errors.New("ENVIRONMENT_ROOT_ACL_STILL_PRESENT")
+	}
+	ownerAfter, e := os.Lstat(ownerFile)
+	if e != nil || !os.SameFile(ownerInfo, ownerAfter) || ownerAfter.Mode().Perm() != 0600 {
+		return errors.New("ENVIRONMENT_OWNER_FILE_PRIVATE_MODE_NOT_VERIFIED")
+	}
+	return nil
+}
 func defaultEnvironmentRoot() (string, error) {
 	p, e := os.UserHomeDir()
 	if e != nil {

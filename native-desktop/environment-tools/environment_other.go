@@ -22,3 +22,5 @@ func preserveEnvironmentOrigin(string, string) error { return errors.New("WINDOW
 func environmentTransitionGuard(string) (func(), error) {
 	return nil, errors.New("WINDOWS_OR_MACOS_REQUIRED")
 }
+
+func secureEnvironmentDataRoot(string) error { return errors.New("WINDOWS_OR_MACOS_REQUIRED") }

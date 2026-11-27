@@ -102,3 +102,70 @@ func TestMacRuntimeQuarantineIsPreservedWithoutWeakening(t *testing.T) {
 		t.Fatal("unmarked source weakened destination quarantine")
 	}
 }
+
+func TestMacEnvironmentOwnedRootAndNewChildrenArePrivate(t *testing.T) {
+	parent := testDirectory(t)
+	root := filepath.Join(parent, "environment")
+	if e := os.Mkdir(root, 0700); e != nil {
+		t.Fatal(e)
+	}
+	outside := filepath.Join(testDirectory(t), "unrelated")
+	if e := os.Mkdir(outside, 0750); e != nil {
+		t.Fatal(e)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	before, e := exec.CommandContext(ctx, "/bin/ls", "-lde", outside).Output()
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = exec.CommandContext(ctx, "/bin/chmod", "+a", "everyone allow list,search,readattr,readextattr,readsecurity,file_inherit,directory_inherit", root).Run(); e != nil {
+		t.Fatal("inherited-ACL fixture could not be prepared")
+	}
+	if e = saveEnvironmentOwner(root); e != nil {
+		t.Fatal(e)
+	}
+	if e = secureEnvironmentDataRoot(root); e != nil {
+		t.Fatal(e)
+	}
+	child := filepath.Join(root, "private-child.json")
+	if e = atomicReplace(child, []byte("synthetic-data")); e != nil {
+		t.Fatal(e)
+	}
+	for _, p := range []string{root, child, filepath.Join(root, "environment-owner.json")} {
+		info, e := os.Lstat(p)
+		if e != nil {
+			t.Fatal(e)
+		}
+		want := os.FileMode(0600)
+		if p == root {
+			want = 0700
+		}
+		if info.Mode().Perm() != want {
+			t.Fatal("component path does not have private mode")
+		}
+		out, e := exec.CommandContext(ctx, "/bin/ls", "-lde", p).Output()
+		if e != nil {
+			t.Fatal(e)
+		}
+		fields := strings.Fields(string(out))
+		if len(fields) == 0 || strings.Contains(fields[0], "+") {
+			t.Fatal("component path retained extended ACL")
+		}
+	}
+	after, e := exec.CommandContext(ctx, "/bin/ls", "-lde", outside).Output()
+	if e != nil || !bytes.Equal(before, after) {
+		t.Fatal("unrelated directory changed")
+	}
+	unowned := testDirectory(t)
+	if e = os.Chmod(unowned, 0750); e != nil {
+		t.Fatal(e)
+	}
+	if secureEnvironmentDataRoot(unowned) == nil {
+		t.Fatal("unowned directory accepted")
+	}
+	info, e := os.Stat(unowned)
+	if e != nil || info.Mode().Perm() != 0750 {
+		t.Fatal("rejected directory mode changed")
+	}
+}

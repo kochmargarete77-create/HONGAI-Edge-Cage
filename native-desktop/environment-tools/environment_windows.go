@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
@@ -78,13 +79,10 @@ func openEnvironmentBrowser(address string) error {
 	return nil
 }
 func defaultEnvironmentRoot() (string, error) {
-	for _, drive := range []string{`E:\`, `D:\`} {
-		if s, e := os.Stat(drive); e == nil && s.IsDir() && windowsUsableDataDrive(drive) {
-			return filepath.Join(drive, "HONGAI-Environment"), nil
-		}
-	}
+	// An installed executable needs a trusted per-user parent. Data-drive roots
+	// remain explicit choices instead of selecting a potentially shared drive.
 	p := os.Getenv("LOCALAPPDATA")
-	if p == "" {
+	if !filepath.IsAbs(p) {
 		return "", errors.New("CUSTOMER_APPLICATION_DATA_DIRECTORY_UNAVAILABLE")
 	}
 	return filepath.Join(p, "HONGAI-Environment"), nil
@@ -273,6 +271,39 @@ func environmentTransitionGuard(root string) (func(), error) {
 	}()
 	r := <-reply
 	return r.release, r.err
+}
+
+// Protect only a verified component-owned data root. SID-only ACL operations
+// avoid account-name/domain resolution and do not touch user application roots.
+func secureEnvironmentDataRoot(root string) error {
+	canonical, e := realPath(root, true)
+	if e != nil {
+		return e
+	}
+	token, e := syscall.OpenCurrentProcessToken()
+	if e != nil {
+		return errors.New("ENVIRONMENT_ROOT_CURRENT_SID_UNAVAILABLE")
+	}
+	identity, e := token.GetTokenUser()
+	token.Close()
+	if e != nil {
+		return errors.New("ENVIRONMENT_ROOT_CURRENT_SID_UNAVAILABLE")
+	}
+	sid, e := identity.User.Sid.String()
+	if e != nil {
+		return errors.New("ENVIRONMENT_ROOT_CURRENT_SID_UNAVAILABLE")
+	}
+	var owner environmentOwner
+	if decodeFile(filepath.Join(canonical, "environment-owner.json"), &owner) != nil || owner.Schema != "hongai.environment-owner.v1" || !samePath(owner.Root, canonical) || owner.UserID != sid {
+		return errors.New("ENVIRONMENT_ROOT_OWNERSHIP_REQUIRED")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	script := `$p=$env:HONGAI_SECURE_ENV_ROOT;$item=Get-Item -LiteralPath $p -Force;if(-not $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){exit 2};$sid=[Security.Principal.WindowsIdentity]::GetCurrent().User;$system=New-Object Security.Principal.SecurityIdentifier('S-1-5-18');$acl=Get-Acl -LiteralPath $p;$owner=$acl.GetOwner([Security.Principal.SecurityIdentifier]);if($owner.Value -cnotin @($sid.Value,'S-1-5-18','S-1-5-32-544')){exit 3};$private=New-Object Security.AccessControl.DirectorySecurity;$private.SetAccessRuleProtection($true,$false);foreach($id in @($sid,$system)){$rule=New-Object Security.AccessControl.FileSystemAccessRule($id,[Security.AccessControl.FileSystemRights]::FullControl,([Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [Security.AccessControl.InheritanceFlags]::ObjectInherit),[Security.AccessControl.PropagationFlags]::None,[Security.AccessControl.AccessControlType]::Allow);$private.AddAccessRule($rule)};(Get-Item -LiteralPath $p -Force).SetAccessControl($private);$check=Get-Acl -LiteralPath $p;$rules=@($check.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]));if(-not $check.AreAccessRulesProtected -or $rules.Count -ne 2){exit 4};foreach($r in $rules){if($r.IdentityReference.Value -cnotin @($sid.Value,'S-1-5-18') -or $r.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow -or $r.FileSystemRights -ne [Security.AccessControl.FileSystemRights]::FullControl -or $r.IsInherited -or $r.InheritanceFlags -ne ([Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [Security.AccessControl.InheritanceFlags]::ObjectInherit) -or $r.PropagationFlags -ne [Security.AccessControl.PropagationFlags]::None){exit 5}};exit 0`
+	if e = windowsEnvironmentCommand(ctx, script, map[string]string{"HONGAI_SECURE_ENV_ROOT": canonical}).Run(); e != nil {
+		return errors.New("ENVIRONMENT_ROOT_PRIVATE_ACL_NOT_ESTABLISHED")
+	}
+	return nil
 }
 func environmentProcessAlive(pid int) bool {
 	if pid <= 0 {

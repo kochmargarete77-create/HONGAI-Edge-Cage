@@ -167,3 +167,62 @@ func TestWindowsRuntimeOriginMarkerIsPreservedWithoutWeakening(t *testing.T) {
 		t.Fatal("unmarked source weakened destination protection")
 	}
 }
+
+func TestWindowsEnvironmentOwnedRootAndNewChildrenHavePrivateACL(t *testing.T) {
+	root, _ := fixtureEnvironment(t)
+	outside := filepath.Join(testDirectory(t), "unrelated")
+	if e := os.Mkdir(outside, 0700); e != nil {
+		t.Fatal(e)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	values := map[string]string{"HONGAI_FIXTURE_ROOT": root, "HONGAI_FIXTURE_OUTSIDE": outside}
+	before, e := windowsEnvironmentCommand(ctx, `(Get-Acl -LiteralPath $env:HONGAI_FIXTURE_OUTSIDE).Sddl`, values).Output()
+	if e != nil {
+		t.Fatal("outside ACL fixture unavailable")
+	}
+	setup := `$sid=[Security.Principal.WindowsIdentity]::GetCurrent().User;$acl=New-Object Security.AccessControl.DirectorySecurity;$acl.SetAccessRuleProtection($true,$false);foreach($id in @($sid,(New-Object Security.Principal.SecurityIdentifier('S-1-5-18')),(New-Object Security.Principal.SecurityIdentifier('S-1-5-11')))){$r=New-Object Security.AccessControl.FileSystemAccessRule($id,'FullControl','ContainerInherit,ObjectInherit','None','Allow');$acl.AddAccessRule($r)};(Get-Item -LiteralPath $env:HONGAI_FIXTURE_ROOT -Force).SetAccessControl($acl)`
+	if e = windowsEnvironmentCommand(ctx, setup, values).Run(); e != nil {
+		t.Fatal("broad inherited-ACL fixture could not be prepared")
+	}
+	for n := 0; n < 3; n++ {
+		if e = secureEnvironmentDataRoot(root); e != nil {
+			t.Fatal(e)
+		}
+	}
+	child := filepath.Join(root, "private-child.json")
+	if e = atomicReplace(child, []byte("synthetic-data")); e != nil {
+		t.Fatal(e)
+	}
+	values["HONGAI_FIXTURE_CHILD"] = child
+	check := `$sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value;foreach($p in @($env:HONGAI_FIXTURE_ROOT,$env:HONGAI_FIXTURE_CHILD,(Join-Path $env:HONGAI_FIXTURE_ROOT 'environment-owner.json'))){$a=Get-Acl -LiteralPath $p;$rules=@($a.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]));if($rules.Count -ne 2){exit 2};foreach($r in $rules){if($r.IdentityReference.Value -cnotin @($sid,'S-1-5-18') -or $r.AccessControlType -ne 'Allow' -or $r.FileSystemRights -ne 'FullControl'){exit 3}}};if(-not (Get-Acl -LiteralPath $env:HONGAI_FIXTURE_ROOT).AreAccessRulesProtected){exit 4}`
+	if e = windowsEnvironmentCommand(ctx, check, values).Run(); e != nil {
+		t.Fatal("component root or newly created child retained nonprivate permissions")
+	}
+	after, e := windowsEnvironmentCommand(ctx, `(Get-Acl -LiteralPath $env:HONGAI_FIXTURE_OUTSIDE).Sddl`, values).Output()
+	if e != nil || !bytes.Equal(before, after) {
+		t.Fatal("unrelated directory ACL changed")
+	}
+	unowned := testDirectory(t)
+	values["HONGAI_FIXTURE_OUTSIDE"] = unowned
+	before, e = windowsEnvironmentCommand(ctx, `(Get-Acl -LiteralPath $env:HONGAI_FIXTURE_OUTSIDE).Sddl`, values).Output()
+	if e != nil {
+		t.Fatal(e)
+	}
+	if secureEnvironmentDataRoot(unowned) == nil {
+		t.Fatal("unowned directory accepted")
+	}
+	after, e = windowsEnvironmentCommand(ctx, `(Get-Acl -LiteralPath $env:HONGAI_FIXTURE_OUTSIDE).Sddl`, values).Output()
+	if e != nil || !bytes.Equal(before, after) {
+		t.Fatal("rejected directory ACL changed")
+	}
+}
+
+func TestWindowsEnvironmentDefaultUsesCustomerApplicationData(t *testing.T) {
+	p := testDirectory(t)
+	t.Setenv("LOCALAPPDATA", p)
+	got, e := defaultEnvironmentRoot()
+	if e != nil || got != filepath.Join(p, "HONGAI-Environment") {
+		t.Fatal("trusted per-user default changed")
+	}
+}

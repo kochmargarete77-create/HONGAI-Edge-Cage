@@ -156,6 +156,9 @@ func installEnvironment(root, self string) (EnvironmentReceipt, error) {
 	if e = saveEnvironmentOwner(root); e != nil {
 		return empty, e
 	}
+	if e = secureEnvironmentDataRoot(root); e != nil {
+		return empty, e
+	}
 	if old.Runtime != "" && ownedEnvironmentRuntime(root, self) && !samePath(self, old.Runtime) {
 		actual, e := readRuntimeBytes(old.Runtime)
 		if e != nil || digest(actual) != old.RuntimeSHA {
