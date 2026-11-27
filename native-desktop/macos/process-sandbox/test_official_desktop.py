@@ -55,6 +55,9 @@ def main():
                 raise RuntimeError("EXPECTED_ANTHROPIC_SIGNING_AUTHORITY")
             print("OFFICIAL_SIGNING", " | ".join(x for x in details.splitlines() if x.startswith(("Identifier=", "Authority=", "TeamIdentifier=", "CDHash="))), flush=True)
             info = plistlib.loads((app / "Contents/Info.plist").read_bytes())
+            fixture=pathlib.Path(__file__).resolve().parent / "build/official-fixture/Claude.app"
+            fixture.parent.mkdir(parents=True,exist_ok=True)
+            run(["/usr/bin/ditto",str(app),str(fixture)])
             executable = app / "Contents/MacOS" / info["CFBundleExecutable"]
             workspace = root / "workspace"
             workspace.mkdir()

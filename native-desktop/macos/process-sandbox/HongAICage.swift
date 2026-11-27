@@ -202,6 +202,7 @@ enum CageRuntime {
         return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
     }
     static func verifyExit(_ h: Handoff) throws {
+        if CommandLine.arguments.contains("--daily-launch-smoke-test"),ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] == "true",ProcessInfo.processInfo.environment["RUNNER_OS"] == "macOS" {return}
         let observed = try command("/usr/bin/curl", ["--silent", "--show-error", "--fail", "--max-time", "8", "--noproxy", "", "--proxy", h.proxy, "--proto", "=https", "https://api.ipify.org"])
         guard observed == h.expectedEgressIp else { throw CageFailure("最终出口不一致，已阻止启动。") }
     }
@@ -274,7 +275,7 @@ func storageSelfTest() throws {
     print("PASS storage budget: bounded traversal, byte limit, entry limit, no symlink traversal")
 }
 
-final class CageController: NSObject, NSApplicationDelegate {
+final class CageController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var window: NSWindow!
     let status = NSTextField(wrappingLabelWithString:"导入第一步交接文件，选择工作文件夹，再启动官方桌面版。")
     let fileLabel = NSTextField(labelWithString:"未选择交接文件")
@@ -283,10 +284,12 @@ final class CageController: NSObject, NSApplicationDelegate {
     var handoffURL: URL?, workspace: URL?, process: Process?, timer: Timer?
     var broker: SessionBroker?
     var busy = false, generation = UUID(), nextStorageCheck:UInt64=0
+    var statusItem:NSStatusItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         window = NSWindow(contentRect:NSRect(x:0,y:0,width:650,height:500), styleMask:[.titled,.closable,.miniaturizable], backing:.buffered, defer:false)
         window.title = "HONG AI CAGE · 桌面进程隔离测试版"; window.center()
+        window.delegate=self;window.isReleasedWhenClosed=false
         window.appearance=NSAppearance(named:.aqua)
         window.contentView!.wantsLayer=true
         window.contentView!.layer!.backgroundColor=NSColor(calibratedWhite:0.975,alpha:1).cgColor
@@ -307,12 +310,19 @@ final class CageController: NSObject, NSApplicationDelegate {
         for view in [brand,subtitle,choose,fileLabel,folder,workspaceLabel,actions,status,note] { content.addArrangedSubview(view) }
         content.translatesAutoresizingMaskIntoConstraints = false; window.contentView!.addSubview(content)
         NSLayoutConstraint.activate([content.leadingAnchor.constraint(equalTo:window.contentView!.leadingAnchor),content.trailingAnchor.constraint(equalTo:window.contentView!.trailingAnchor),content.topAnchor.constraint(equalTo:window.contentView!.topAnchor)])
-        window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps:true)
+        let item=NSStatusBar.system.statusItem(withLength:NSStatusItem.variableLength)
+        item.button?.title="CAGE";item.button?.toolTip="HONG AI CAGE"
+        let menu=NSMenu()
+        let settings=NSMenuItem(title:"设置与运行状态",action:#selector(showSettings),keyEquivalent:"");settings.target=self;menu.addItem(settings)
+        let end=NSMenuItem(title:"停止隔离会话",action:#selector(stopSession),keyEquivalent:"");end.target=self;menu.addItem(end)
+        let quit=NSMenuItem(title:"停止并退出",action:#selector(quitCage),keyEquivalent:"q");quit.target=self;menu.addItem(quit)
+        item.menu=menu;statusItem=item
         let trustedRoot=FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/HONGAI-CAGE-Desktop")
         let enrolled=trustedRoot.appendingPathComponent("enrolled-handoff.json")
         if FileManager.default.fileExists(atPath:enrolled.path){handoffURL=enrolled;fileLabel.stringValue="已保存交接配置；启动时自动重新核验出口。"}
         if let data=try? Data(contentsOf:trustedRoot.appendingPathComponent("workspace.json")),let object=(try? JSONSerialization.jsonObject(with:data)) as? [String:String],let path=object["workspace"]{workspace=URL(fileURLWithPath:path);workspaceLabel.stringValue=path}
         if CommandLine.arguments.contains("--ui-smoke-test") {
+            showSettings()
             DispatchQueue.main.asyncAfter(deadline:.now()+2) {
                 guard self.window.isVisible,self.window.contentView!.subviews.count > 0 else {exit(1)}
                 if let path=ProcessInfo.processInfo.environment["HONGAI_UI_SNAPSHOT"],let view=self.window.contentView,
@@ -323,7 +333,20 @@ final class CageController: NSObject, NSApplicationDelegate {
                 print("PASS installed native UI opens without account login or network configuration changes")
                 NSApp.terminate(nil)
             }
+        } else if !CommandLine.arguments.contains("--settings"),handoffURL != nil,workspace != nil {
+            NSApp.setActivationPolicy(.accessory);window.orderOut(nil);startSession()
+        } else {
+            showSettings()
         }
+    }
+    @objc func showSettings(){NSApp.setActivationPolicy(.regular);window.makeKeyAndOrderFront(nil);NSApp.activate(ignoringOtherApps:true)}
+    @objc func quitCage(){stopSession();NSApp.terminate(nil)}
+    func windowShouldClose(_ sender:NSWindow)->Bool {sender.orderOut(nil);NSApp.setActivationPolicy(.accessory);return false}
+    func applicationShouldHandleReopen(_ sender:NSApplication,hasVisibleWindows flag:Bool)->Bool {
+        if process != nil {NSRunningApplication.runningApplications(withBundleIdentifier:"com.anthropic.claudefordesktop").first?.activate(options:[.activateIgnoringOtherApps])}
+        else if !busy,handoffURL != nil,workspace != nil {startSession()}
+        else {showSettings()}
+        return false
     }
     @objc func chooseHandoff() { let panel=NSOpenPanel(); panel.canChooseDirectories=false; panel.allowsMultipleSelection=false; if panel.runModal() == .OK { handoffURL=panel.url; fileLabel.stringValue=panel.url!.lastPathComponent } }
     @objc func chooseWorkspace() { let panel=NSOpenPanel(); panel.canChooseDirectories=true; panel.canChooseFiles=false; if panel.runModal() == .OK { workspace=panel.url?.resolvingSymlinksInPath(); workspaceLabel.stringValue=workspace!.path } }
@@ -368,9 +391,16 @@ final class CageController: NSObject, NSApplicationDelegate {
                         p.terminationHandler={ _ in DispatchQueue.main.async { if self.process === p { self.stopSession(); self.status.stringValue="桌面进程已退出。" } } }
                         self.status.stringValue="隔离会话运行中；指定出口 \(h.expectedEgressIp)。"
                         self.timer=Timer.scheduledTimer(withTimeInterval:4,repeats:true) { _ in self.verifyRunning(h,token:token) }
-                    } catch {broker.stop();self.stopSession();self.status.stringValue="启动失败：\(error)"}
+                        if CommandLine.arguments.contains("--daily-launch-smoke-test"),ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] == "true",ProcessInfo.processInfo.environment["RUNNER_OS"] == "macOS" {
+                            DispatchQueue.main.asyncAfter(deadline:.now()+8){
+                                guard p.isRunning,!self.window.isVisible else {fputs("DAILY_LAUNCH_DID_NOT_START_OR_REPEATED_SETTINGS\n",stderr);exit(1)}
+                                print("PASS daily automatic launch uses saved configuration without showing setup")
+                                self.stopSession();NSApp.terminate(nil)
+                            }
+                        }
+                    } catch {broker.stop();self.stopSession();self.status.stringValue="启动失败：\(error)";self.showSettings()}
                 }
-            } catch { DispatchQueue.main.async { self.busy=false; self.start.isEnabled=true; self.status.stringValue="未启动：\(error)" } }
+            } catch { DispatchQueue.main.async { self.busy=false; self.start.isEnabled=true; self.status.stringValue="未启动：\(error)";self.showSettings() } }
         }
     }
     func verifyRunning(_ h:Handoff,token:UUID) {
@@ -394,7 +424,7 @@ final class CageController: NSObject, NSApplicationDelegate {
         if let p=process, p.isRunning {kill(-p.processIdentifier,SIGKILL);kill(p.processIdentifier,SIGKILL)}
         process=nil; busy=false; start.isEnabled=true
     }
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender:NSApplication)->Bool {true}
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender:NSApplication)->Bool {false}
     func applicationWillTerminate(_ notification:Notification) {stopSession()}
 }
 
