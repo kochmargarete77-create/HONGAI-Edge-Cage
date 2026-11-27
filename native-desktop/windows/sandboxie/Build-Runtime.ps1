@@ -14,8 +14,9 @@ $official=Get-AppxPackage -Name Claude|Where-Object {$_.Publisher -match 'Anthro
 if(-not $official){throw 'OFFICIAL_SIGNED_SOURCE_REQUIRED_FOR_BUILD_ICON'}
 $officialExe=Join-Path $official.InstallLocation 'app\Claude.exe'
 if((Get-AuthenticodeSignature -LiteralPath $officialExe).Status -ne 'Valid'){throw 'OFFICIAL_ICON_SOURCE_SIGNATURE_INVALID'}
-$officialIcon=Join-Path $official.InstallLocation 'app\resources\Tray-Win32.ico'
-$icon=Join-Path $Destination 'resources\Claude.ico';Copy-Item -LiteralPath $officialIcon -Destination $icon
+$icon=Join-Path $Destination 'resources\Claude.ico'
+Add-Type -TypeDefinition ([IO.File]::ReadAllText((Join-Path $PSScriptRoot 'OfficialIcon.cs')))
+[HongAi.Brand.OfficialIcon]::Export($officialExe,$icon)
 $iconBytes=[IO.File]::ReadAllBytes($icon);if($iconBytes.Length -lt 22 -or [BitConverter]::ToUInt16($iconBytes,2) -ne 1){throw 'OFFICIAL_ICON_FORMAT_INVALID'}
 & $compiler /nologo /platform:x64 /target:exe /optimize+ /r:System.Web.Extensions.dll /main:HongAi.NativeBoundary.OfficialProgram ("/out:"+(Join-Path $Destination 'resources\HONGAI-OfficialBoundary.exe')) (Join-Path $native 'WfpBoundary.cs') (Join-Path $native 'OfficialBoundary.cs')
 if($LASTEXITCODE -ne 0){throw 'INVENTORY_HELPER_COMPILE_FAILED'}
