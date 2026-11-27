@@ -21,7 +21,9 @@ $stop=Join-Path $data 'signals\qa.stop'
 $test=[ordered]@{installer=$false;session=$false;nativeUI=$false;dailyAutomaticLaunch=$false;uninstall=$false;loginAttempted=$false;hostNetworkSettingsChanged=$false;customerAccepted=$false}
 try{
     $test.installer=$true
-    & (Join-Path $target 'Run-Session.ps1') -DataRoot $data -Workspace $workspace -HandoffPath $handoff -StopFile $stop -MaximumSessionSeconds 45 -OfflineAcceptance
+    $sessionArguments='-NoLogo -NoProfile -ExecutionPolicy Bypass -File "'+(Join-Path $target 'Run-Session.ps1')+'" -DataRoot "'+$data+'" -Workspace "'+$workspace+'" -HandoffPath "'+$handoff+'" -StopFile "'+$stop+'" -MaximumSessionSeconds 45 -OfflineAcceptance'
+    $session=Start-Process -FilePath "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" -ArgumentList $sessionArguments -PassThru -WindowStyle Hidden
+    if(-not $session.WaitForExit(180000)){$session.Kill();throw 'INSTALLED_SESSION_LIFECYCLE_TIMEOUT'}
     $state=Get-Content -LiteralPath (Join-Path $data 'session-status.json') -Raw -Encoding UTF8|ConvertFrom-Json
     if($state.phase -ne 'STOPPED' -or -not $state.officialDesktopStarted -or $state.storageBudgetChecks -lt 1 -or $state.officialSourceKind -cne 'MSIX_PRIVATE_SIGNED_COPY' -or $state.officialFilesVerified -lt 5){$state|ConvertTo-Json -Depth 6|Write-Host;throw 'INTEGRATED_OFFICIAL_SESSION_NOT_ACCEPTED'}
     $test.session=$true
