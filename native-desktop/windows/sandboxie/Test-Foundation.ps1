@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param([ValidateSet('classic','plus')][string]$EngineFlavor='classic')
 $ErrorActionPreference='Stop'
+$ProgressPreference='SilentlyContinue'
 if($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_OS -ne 'Windows'){throw 'DISPOSABLE_GITHUB_CI_ONLY_DO_NOT_RUN_ON_CUSTOMER_HOST'}
 $root=Join-Path $PSScriptRoot 'build'
 if($root -notmatch '^D:\\'){throw 'CI_PROJECT_DATA_MUST_USE_D_DRIVE'}

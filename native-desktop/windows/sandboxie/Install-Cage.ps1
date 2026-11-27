@@ -16,6 +16,10 @@ try {
         if(-not $file.StartsWith($PSScriptRoot+'\',[StringComparison]::OrdinalIgnoreCase)-or (Get-FileHash -LiteralPath $file).Hash -ine $hash){throw 'INSTALL_PAYLOAD_VERIFICATION_FAILED'}
     }
     if(@(Get-Process Claude -ErrorAction SilentlyContinue).Count -gt 0){throw 'EXIT_CLAUDE_BEFORE_INSTALL'}
+    $official=Get-AppxPackage -User $ownerSid.Value -Name Claude|Where-Object {$_.Publisher -match 'Anthropic, PBC' -and $_.PackageFullName -match '^Claude_[0-9.]+_x64__pzs8sxrjxfjjc$'}|Sort-Object Version -Descending|Select-Object -First 1
+    if(-not $official){throw 'SUPPORTED_OFFICIAL_CLAUDE_X64_MSIX_NOT_INSTALLED'}
+    $officialSignature=Get-AuthenticodeSignature -LiteralPath (Join-Path $official.InstallLocation 'app\Claude.exe')
+    if($officialSignature.Status -ne 'Valid' -or $officialSignature.SignerCertificate.Subject -notmatch 'Anthropic, PBC'){throw 'OFFICIAL_CLAUDE_SIGNATURE_INVALID'}
     if(-not $Destination){$drive=$null;foreach($candidate in @('E:\','D:\')){try{$info=[IO.DriveInfo]::new($candidate);if($info.IsReady -and $info.DriveType -eq 'Fixed' -and $info.AvailableFreeSpace -ge 5GB){$drive=$candidate.TrimEnd('\');break}}catch{}};$Destination=if($drive){$drive+'\HONGAI-CAGE\Desktop'}else{Join-Path $env:ProgramFiles 'HONGAI-CAGE\Desktop'}}
     $target=[IO.Path]::GetFullPath($Destination).TrimEnd('\')
     if($target -match '["\r\n*?]' -or $target.Length -lt 8 -or $target.StartsWith('\\')){throw 'INSTALL_PATH_INVALID'}

@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param([string]$LegacyRuntime,[Parameter(Mandatory)][string]$Destination)
 $ErrorActionPreference='Stop'
+$ProgressPreference='SilentlyContinue'
 if(Test-Path $Destination){throw 'INSTALLER_BUILD_DESTINATION_EXISTS'}
 $stage=Join-Path $Destination 'staging';$null=New-Item -ItemType Directory -Path $stage -Force
 $env:TEMP=Join-Path $Destination '.tmp';$env:TMP=$env:TEMP;$null=New-Item -ItemType Directory -Path $env:TEMP -Force
