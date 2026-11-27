@@ -55,10 +55,14 @@ try{
     & (Join-Path $PSScriptRoot 'Test-IntegratedPackage.ps1') -EnginePath $EnginePath
     $classicInstaller=Join-Path $Root 'Sandboxie-Classic-x64-v5.74.1.exe'
     if(Test-Path -LiteralPath $classicInstaller){
+        # Only this fresh CI-owned official registration is removed. The second
+        # EXE install must download and register the missing official dependency.
+        Remove-AppxPackage -Package $package.PackageFullName
+        if(Get-AppxPackage -Name Claude){throw 'CI_OFFICIAL_FIXTURE_REMOVAL_FAILED'}
         $removed=Start-Process -FilePath $classicInstaller -ArgumentList '/remove /S' -Wait -PassThru
         if($removed.ExitCode -ne 0 -or (Get-Service SbieSvc -ErrorAction SilentlyContinue)){throw 'FRESH_INSTALL_FIXTURE_ENGINE_REMOVAL_FAILED'}
         & (Join-Path $PSScriptRoot 'Test-IntegratedPackage.ps1') -FreshEngine
-        Write-Host 'PASS customer setup with fresh core reads real registered MSIX and starts a private signed payload'
+        Write-Host 'PASS fresh customer setup downloads missing official Claude, installs core, verifies MSIX and starts signed private payload'
     }
 } catch {$report.error=$_.Exception.Message;throw}
 finally{

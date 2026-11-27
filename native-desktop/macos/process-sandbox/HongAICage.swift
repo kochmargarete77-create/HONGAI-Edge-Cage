@@ -474,6 +474,18 @@ final class CageController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationWillTerminate(_ notification:Notification) {stopSession()}
 }
 
+if CommandLine.arguments.contains("--official-install-smoke-test") {
+    guard ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] == "true",ProcessInfo.processInfo.environment["RUNNER_OS"] == "macOS" else {exit(64)}
+    do {
+        let ownApp=FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications/Claude.app")
+        guard !FileManager.default.fileExists(atPath:ownApp.path),!FileManager.default.fileExists(atPath:"/Applications/Claude.app") else {throw CageFailure("CI_OFFICIAL_TARGET_ALREADY_EXISTS")}
+        let root=FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/HONGAI-CAGE-Desktop")
+        let result=try OfficialRuntime.installLatest(root:root,proxy:nil)
+        try OfficialRuntime.verify(ownApp)
+        print("PASS official first-install from HTTPS Stable source: "+result)
+        exit(0)
+    } catch {fputs(String(describing:error),stderr);exit(1)}
+}
 if CommandLine.arguments.contains("--storage-self-test") {
     do {try storageSelfTest();exit(0)} catch {fputs("\(error)\n",stderr);exit(1)}
 }

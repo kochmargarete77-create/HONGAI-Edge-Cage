@@ -12,7 +12,7 @@ import time
 
 
 def run(command, **kwargs):
-    result=subprocess.run(command, check=False, capture_output=True, text=True, timeout=120, **kwargs)
+    result=subprocess.run(command, check=False, capture_output=True, text=True, timeout=kwargs.pop('timeout',120), **kwargs)
     if result.returncode:
         print(result.stdout[-6000:],flush=True)
         print(result.stderr[-6000:],flush=True)
@@ -35,6 +35,10 @@ def main():
     if official.exists() or own_data.exists():
         raise RuntimeError('DAILY_LAUNCH_TEST_TARGET_ALREADY_EXISTS')
     official_added=False
+    user_official=pathlib.Path.home() / 'Applications/Claude.app'
+    user_official_added=False
+    if user_official.exists():
+        raise RuntimeError('OFFICIAL_USER_APPLICATION_ALREADY_EXISTS')
     try:
         run(["sudo","/usr/sbin/installer","-pkg",str(package),"-target","/"])
         installed=True
@@ -67,9 +71,26 @@ def main():
             if 'PASS daily automatic launch' not in cached.stdout:
                 raise RuntimeError('VERIFIED_SNAPSHOT_REUSE_FAILED')
             print('PASS second daily launch reuses the signed private official snapshot',flush=True)
+            # Exercise the actual product downloader and user-directory install,
+            # rather than assuming a preinstalled official app on every client.
+            run(['sudo','/bin/rm','-rf',str(official)])
+            official_added=False
+            user_official_added=True
+            installed_official=run([str(executable),'--official-install-smoke-test'],timeout=240)
+            if 'PASS official first-install' not in installed_official.stdout:
+                raise RuntimeError('OFFICIAL_FIRST_INSTALL_NOT_CONFIRMED')
+            print(installed_official.stdout.strip(),flush=True)
+            user_daily=run([str(executable),'--daily-launch-smoke-test'])
+            if 'PASS daily automatic launch' not in user_daily.stdout:
+                raise RuntimeError('USER_APPLICATION_DAILY_START_FAILED')
+            print('PASS official user-directory installation launches in the same process boundary',flush=True)
         print(json.dumps({"installer":"PASS","universal":"PASS","signature":"AD_HOC_VALID","nativeUI":"PASS",
                           "loginAttempted":False,"hostNetworkSettingsChanged":False,"customerAccepted":False}),flush=True)
     finally:
+        if user_official_added and user_official.exists() and not user_official.is_symlink():
+            info=plistlib.loads((user_official / 'Contents/Info.plist').read_bytes())
+            if info.get('CFBundleIdentifier') == 'com.anthropic.claudefordesktop':
+                shutil.rmtree(user_official)
         log=own_data / 'temp/official-daily-start.log'
         if log.exists():
             print('OFFICIAL_DAILY_START_DIAGNOSTIC',log.read_text(errors='replace')[-8000:],flush=True)
@@ -77,7 +98,7 @@ def main():
             info=plistlib.loads((official / 'Contents/Info.plist').read_bytes())
             if info.get('CFBundleIdentifier') == 'com.anthropic.claudefordesktop' and not official.is_symlink():
                 run(['sudo','/bin/rm','-rf',str(official)])
-        if official_added and own_data.exists() and not own_data.is_symlink():
+        if (official_added or user_official_added) and own_data.exists() and not own_data.is_symlink():
             shutil.rmtree(own_data)
         if installed and application.exists():
             info=plistlib.loads((application / "Contents/Info.plist").read_bytes())
