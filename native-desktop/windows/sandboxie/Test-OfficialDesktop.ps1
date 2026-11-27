@@ -27,13 +27,15 @@ function Start-OwnedOfficial([string]$Path){
     @((Get-CimInstance Win32_Process -Filter "Name='Claude.exe'" -ErrorAction SilentlyContinue)|Where-Object {$_.ExecutablePath -ieq $Path -or $_.CommandLine -like ('*'+$profile+'*')})
 }
 try{
+    if(Get-AppxPackage -Name Claude -ErrorAction SilentlyContinue){throw 'PREEXISTING_OFFICIAL_PACKAGE_NOT_OWNED'}
+    Add-AppxPackage -Path $msix -ErrorAction Stop
+    $package=Get-AppxPackage -Name Claude | Select-Object -First 1
+    if(-not $package){throw 'ACTUAL_MSIX_REGISTRATION_NOT_CONFIRMED'}
+    $report.actualMsixRegistered=$true
     $owned=@(Start-OwnedOfficial $executable)
     $report.unpackedStart=$owned.Count -gt 0
     if($owned.Count -eq 0){
         & $start ("/box:"+$BoxName) /terminate | Out-Null
-        if(Get-AppxPackage -Name Claude -ErrorAction SilentlyContinue){throw 'PREEXISTING_OFFICIAL_PACKAGE_NOT_OWNED'}
-        Add-AppxPackage -Path $msix -ErrorAction Stop
-        $package=Get-AppxPackage -Name Claude | Select-Object -First 1
         $executable=Join-Path $package.InstallLocation 'app\Claude.exe'
         $owned=@(Start-OwnedOfficial $executable)
         $report.registeredStart=$owned.Count -gt 0
@@ -50,10 +52,17 @@ try{
     Write-Host "PASS official signed Claude Desktop runs in signed sandbox; processes=$($owned.Count); login=false"
     & $start ("/box:"+$BoxName) /terminate | Out-Null
     Start-Sleep -Seconds 2
-    & (Join-Path $PSScriptRoot 'Test-IntegratedPackage.ps1') -EnginePath $EnginePath -OfficialExecutable $executable
+    & (Join-Path $PSScriptRoot 'Test-IntegratedPackage.ps1') -EnginePath $EnginePath
+    $classicInstaller=Join-Path $Root 'Sandboxie-Classic-x64-v5.74.1.exe'
+    if(Test-Path -LiteralPath $classicInstaller){
+        $removed=Start-Process -FilePath $classicInstaller -ArgumentList '/remove /S' -Wait -PassThru
+        if($removed.ExitCode -ne 0 -or (Get-Service SbieSvc -ErrorAction SilentlyContinue)){throw 'FRESH_INSTALL_FIXTURE_ENGINE_REMOVAL_FAILED'}
+        & (Join-Path $PSScriptRoot 'Test-IntegratedPackage.ps1') -FreshEngine
+        Write-Host 'PASS customer setup with fresh core reads real registered MSIX and starts a private signed payload'
+    }
 } catch {$report.error=$_.Exception.Message;throw}
 finally{
-    & $start ("/box:"+$BoxName) /terminate | Out-Null
+    if(Test-Path -LiteralPath $start){& $start ("/box:"+$BoxName) /terminate | Out-Null}
     if($null -ne $package){Remove-AppxPackage -Package $package.PackageFullName -ErrorAction SilentlyContinue}
     $report|ConvertTo-Json -Depth 6|Set-Content (Join-Path $Root 'official-desktop-status.json') -Encoding UTF8
 }

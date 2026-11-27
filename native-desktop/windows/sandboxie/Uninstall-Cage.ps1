@@ -14,6 +14,7 @@ if(Test-Path $ownership){
     if($owned.ownerSid -cne $receipt.ownerSid -or $owned.box -notmatch '^HONGAI_CAGE_[a-f0-9]{12}$'){throw 'BOX_OWNERSHIP_MISMATCH'}
     $ini=Join-Path $receipt.enginePath 'SbieIni.exe'
     & $ini set $owned.box ForceProcess|Out-Null
+    & $ini set $owned.box ForceFolder|Out-Null
     & $ini set $owned.box Enabled n|Out-Null
     if((& $ini query $owned.box ForceProcess|Out-String).Trim()){throw 'FORCE_RULE_REMOVAL_NOT_CONFIRMED'}
 }

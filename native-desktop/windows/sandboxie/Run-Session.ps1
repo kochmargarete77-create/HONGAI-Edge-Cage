@@ -6,8 +6,7 @@ param(
     [Parameter(Mandatory)][string]$StopFile,
     [int]$ParentProcessId=0,
     [int]$MaximumSessionSeconds=0,
-    [switch]$OfflineAcceptance,
-    [string]$OfficialExecutableOverride
+    [switch]$OfflineAcceptance
 )
 $ErrorActionPreference='Stop'
 if($PSVersionTable.PSEdition -eq 'Desktop'){$env:PSModulePath=(Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\Modules')+';'+(Join-Path $env:ProgramFiles 'WindowsPowerShell\Modules')}
@@ -22,7 +21,8 @@ $receipt=Get-Content -LiteralPath (Join-Path $DataRoot 'installation.json') -Raw
 $sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 if($receipt.schema -cne 'hongai.cage.installation.v1' -or $receipt.dataRoot -cne $DataRoot -or $receipt.ownerSid -cne $sid){throw 'CAGE_INSTALLATION_OWNERSHIP_MISMATCH'}
 $safeDataRoot=$true
-if(($OfflineAcceptance -or $OfficialExecutableOverride) -and $env:GITHUB_ACTIONS -ne 'true'){throw 'TEST_OVERRIDES_REQUIRE_DISPOSABLE_CI'}
+[IO.File]::WriteAllText((Join-Path $DataRoot 'session-status.json'),(@{phase='PREPARING';message='核对已保存配置与官方桌面运行文件'}|ConvertTo-Json),[Text.UTF8Encoding]::new($false))
+if($OfflineAcceptance -and $env:GITHUB_ACTIONS -ne 'true'){throw 'TEST_OVERRIDES_REQUIRE_DISPOSABLE_CI'}
 $workspaceItem=Get-Item -LiteralPath $Workspace -ErrorAction Stop
 if(-not $workspaceItem.PSIsContainer -or ($workspaceItem.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'WORKSPACE_MUST_BE_A_REAL_LOCAL_DIRECTORY'}
 $Workspace=(Resolve-Path -LiteralPath $Workspace -ErrorAction Stop).Path.TrimEnd('\')
@@ -71,11 +71,9 @@ if($existing){if(-not(Test-Path $ownership)){throw 'EXISTING_BOX_NOT_OWNED_BY_CA
 else{
     [IO.File]::WriteAllText($ownership,([ordered]@{box=$box;ownerSid=$sid}|ConvertTo-Json),[Text.UTF8Encoding]::new($false))
 }
-if($OfficialExecutableOverride){$executable=[IO.Path]::GetFullPath($OfficialExecutableOverride)}else{
-    $package=Get-AppxPackage -Name Claude|Where-Object Publisher -Match 'Anthropic, PBC'|Select-Object -First 1
-    if(-not $package){throw 'OFFICIAL_CLAUDE_DESKTOP_MUST_BE_INSTALLED'}
-    $executable=Join-Path $package.InstallLocation 'app\Claude.exe'
-}
+Import-Module (Join-Path $runtime 'Official-Runtime.psm1') -Force
+$official=Get-HongAiPrivateOfficialRuntime -DataRoot $DataRoot
+$executable=$official.Executable
 $signature=Get-AuthenticodeSignature -LiteralPath $executable
 if($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Anthropic'){throw 'OFFICIAL_CLAUDE_SIGNATURE_INVALID'}
 if(@(Get-Process Claude -ErrorAction SilentlyContinue).Count -gt 0){throw 'EXIT_EXISTING_CLAUDE_BEFORE_START'}
@@ -84,7 +82,7 @@ try{if($hostPolicy -and $hostPolicy.ValueCount -gt 0){throw 'EXISTING_ENTERPRISE
 Add-Type -Path (Join-Path $runtime 'resources\HONGAI-SessionProxy.dll')
 $broker=$null;$admitted=$false;$startedAt=[datetime]::UtcNow
 $statusPath=Join-Path $DataRoot 'session-status.json'
-$status=[ordered]@{schema='hongai.cage.session.v1';phase='PREPARING';box=$box;exitIp=$handoff.ExpectedEgressIp;mode='SIGNED_DESKTOP_SANDBOX_PILOT';loginAttempted=$false;globalNetworkChanges=0;storageBudgetChecks=0}
+$status=[ordered]@{schema='hongai.cage.session.v1';phase='PREPARING';box=$box;exitIp=$handoff.ExpectedEgressIp;mode='SIGNED_DESKTOP_SANDBOX_PILOT';loginAttempted=$false;globalNetworkChanges=0;storageBudgetChecks=0;officialSourceKind=$official.SourceKind;officialPackage=$official.PackageFullName;officialFilesVerified=$official.FilesVerified;runtimeCacheReused=$official.CacheReused}
 function Save-Status{[IO.File]::WriteAllText($statusPath,($status|ConvertTo-Json -Depth 6),[Text.UTF8Encoding]::new($false))}
 Save-Status
 try{
@@ -104,7 +102,11 @@ try{
     Set-Setting $box 'WriteFilePath' '%UserProfile%\.claude\*' -Append
     Set-Setting $box 'ClosedFilePath' ((Join-Path $DataRoot 'signals')+'\*')
     foreach($path in @(($runtime+'\*'),$enrolled,(Join-Path $DataRoot 'installation.json'),'%SystemRoot%\Sandboxie.ini','%AppData%\io.github.clash-verge-rev.clash-verge-rev\*','%AppData%\Clash Verge\*','%UserProfile%\.config\clash\*','%UserProfile%\.config\mihomo\*','%Local AppData%\Google\Chrome\User Data\*','%Local AppData%\Microsoft\Edge\User Data\*')){Set-Setting $box 'ClosedFilePath' $path -Append}
-    Set-Setting $box 'ForceProcess' 'Claude.exe'
+    # Only the private official payload belongs to this box. The installed
+    # MSIX keeps its own AppModel registration; never redirect that activation
+    # into an assumed already-protected process.
+    Set-Setting $box 'ForceProcess' ''
+    Set-Setting $box 'ForceFolder' (Join-Path $DataRoot 'OfficialRuntime')
     Set-Setting $box 'Enabled' 'y'
     $active=Read-Setting $box 'NetworkAccess'
     if($active -notmatch '\*,Block' -or $active -notmatch [regex]::Escape("Port=$($broker.Port);Address=127.0.0.1;Protocol=TCP")){throw 'BOX_KERNEL_POLICY_READBACK_FAILED'}
@@ -123,7 +125,7 @@ try{
         [IO.File]::WriteAllText($enrolled,($admittedHandoff|ConvertTo-Json -Depth 4),[Text.UTF8Encoding]::new($false))
     }
     [IO.File]::WriteAllText((Join-Path $DataRoot 'workspace.json'),([ordered]@{workspace=$Workspace}|ConvertTo-Json),[Text.UTF8Encoding]::new($false))
-    $arguments=@("/box:$box",'/silent',"/env:HTTP_PROXY=http://127.0.0.1:$($broker.Port)","/env:HTTPS_PROXY=http://127.0.0.1:$($broker.Port)","/env:ALL_PROXY=http://127.0.0.1:$($broker.Port)",$executable,"--proxy-server=http://127.0.0.1:$($broker.Port)",'--proxy-bypass-list=<-loopback>','--disable-quic','--disk-cache-size=268435456','--media-cache-size=134217728')
+    $arguments=@("/box:$box",'/silent',"/env:HTTP_PROXY=http://127.0.0.1:$($broker.Port)","/env:HTTPS_PROXY=http://127.0.0.1:$($broker.Port)","/env:ALL_PROXY=http://127.0.0.1:$($broker.Port)",$executable,('--user-data-dir='+(Join-Path $DataRoot 'Profile')),"--proxy-server=http://127.0.0.1:$($broker.Port)",'--proxy-bypass-list=<-loopback>','--disable-quic','--disk-cache-size=268435456','--media-cache-size=134217728')
     $null=Invoke-Engine $start $arguments
     Start-Sleep -Seconds 2
     $boxPids=@(Box-Pids)

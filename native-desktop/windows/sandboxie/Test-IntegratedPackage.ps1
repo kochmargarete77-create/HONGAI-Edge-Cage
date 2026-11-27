@@ -1,10 +1,10 @@
 [CmdletBinding()]
-param([string]$EnginePath,[Parameter(Mandatory)][string]$OfficialExecutable,[switch]$FreshEngine)
+param([string]$EnginePath,[switch]$FreshEngine)
 $ErrorActionPreference='Stop'
 if($env:GITHUB_ACTIONS -ne 'true'){throw 'DISPOSABLE_CI_ONLY'}
 $output=Join-Path $PSScriptRoot 'integrated-build'
 if(-not $FreshEngine){& (Join-Path $PSScriptRoot 'Build-Installer.ps1') -Destination $output}
-$setup=Join-Path $output 'HONGAI-CAGE-Desktop-0.3.0-pilot.2-Windows-x64-Setup.exe'
+$setup=Join-Path $output 'HONGAI-CAGE-Desktop-0.3.0-pilot.3-Windows-x64-Setup.exe'
 $target=if($FreshEngine){'D:\HONGAI-CAGE-Fresh-QA\Desktop'}else{'D:\HONGAI-CAGE-Integrated-QA\Desktop'}
 $prefix=if($FreshEngine){'fresh-'}else{''}
 $env:HONGAI_CAGE_CI_RESULT=Join-Path $output ($prefix+'installer-result.json')
@@ -18,16 +18,21 @@ $socket.Bind([Net.IPEndPoint]::new([Net.IPAddress]::Loopback,0));$port=$socket.L
 $handoff=Join-Path $PSScriptRoot 'integrated-handoff.json'
 [ordered]@{version=1;tool='clash';loopback=[ordered]@{protocol='http';host='127.0.0.1';mixedPort=$port};expectedEgressIp='8.8.8.8';routeId='0123456789abcdef01234567';generatedAt=[datetime]::UtcNow.ToString('o')}|ConvertTo-Json -Depth 5|Set-Content $handoff -Encoding UTF8
 $stop=Join-Path $data 'signals\qa.stop'
-$test=[ordered]@{installer=$false;session=$false;nativeUI=$false;uninstall=$false;loginAttempted=$false;hostNetworkSettingsChanged=$false;customerAccepted=$false}
+$test=[ordered]@{installer=$false;session=$false;nativeUI=$false;dailyAutomaticLaunch=$false;uninstall=$false;loginAttempted=$false;hostNetworkSettingsChanged=$false;customerAccepted=$false}
 try{
     $test.installer=$true
-    & (Join-Path $target 'Run-Session.ps1') -DataRoot $data -Workspace $workspace -HandoffPath $handoff -StopFile $stop -MaximumSessionSeconds 45 -OfflineAcceptance -OfficialExecutableOverride $OfficialExecutable
+    & (Join-Path $target 'Run-Session.ps1') -DataRoot $data -Workspace $workspace -HandoffPath $handoff -StopFile $stop -MaximumSessionSeconds 45 -OfflineAcceptance
     $state=Get-Content -LiteralPath (Join-Path $data 'session-status.json') -Raw -Encoding UTF8|ConvertFrom-Json
-    if($state.phase -ne 'STOPPED' -or -not $state.officialDesktopStarted -or $state.storageBudgetChecks -lt 1){$state|ConvertTo-Json -Depth 6|Write-Host;throw 'INTEGRATED_OFFICIAL_SESSION_NOT_ACCEPTED'}
+    if($state.phase -ne 'STOPPED' -or -not $state.officialDesktopStarted -or $state.storageBudgetChecks -lt 1 -or $state.officialSourceKind -cne 'MSIX_PRIVATE_SIGNED_COPY' -or $state.officialFilesVerified -lt 5){$state|ConvertTo-Json -Depth 6|Write-Host;throw 'INTEGRATED_OFFICIAL_SESSION_NOT_ACCEPTED'}
     $test.session=$true
     $gui=Start-Process -FilePath (Join-Path $target 'HONGAI-CAGE.exe') -ArgumentList '--ui-smoke-test' -PassThru
     if(-not $gui.WaitForExit(15000) -or $gui.ExitCode -ne 0){throw 'INTEGRATED_NATIVE_UI_FAILED'}
     $test.nativeUI=$true
+    $daily=Start-Process -FilePath (Join-Path $target 'HONGAI-CAGE.exe') -ArgumentList '--daily-launch-smoke-test' -PassThru
+    if(-not $daily.WaitForExit(90000)){$daily.Kill();throw 'DAILY_AUTOMATIC_LAUNCH_TIMEOUT'}
+    $dailyResult=Get-Content -LiteralPath (Join-Path $data 'daily-launch-test.json') -Raw -Encoding UTF8|ConvertFrom-Json
+    if(-not $dailyResult.automaticLaunch -or $dailyResult.settingsVisible){throw 'DAILY_LAUNCH_REPEATED_SETUP_OR_DID_NOT_START'}
+    $test.dailyAutomaticLaunch=$true
     & (Join-Path $target 'Uninstall-Cage.ps1') -ConfirmUninstall
     if(Test-Path $target){throw 'INTEGRATED_UNINSTALL_DID_NOT_MOVE_OWN_APP'}
     $test.uninstall=$true

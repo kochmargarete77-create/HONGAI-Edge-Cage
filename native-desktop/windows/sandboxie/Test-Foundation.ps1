@@ -84,14 +84,6 @@ try{
     Check-Fixture 'connect' $port 13 'proxy loss leaves sandbox offline'
     Check-Fixture 'nested' $other 13 'proxy loss never opens alternate route for tools'
     & (Join-Path $PSScriptRoot 'Test-OfficialDesktop.ps1') -EnginePath $install -BoxName $box -Root $root -ProxyPort $port
-    if($EngineFlavor -eq 'classic'){
-        # Both update/reuse and first-time component installation must execute
-        # the actual customer setup, not an extracted-script approximation.
-        $removed=Start-Process -FilePath $installer -ArgumentList '/remove /S' -Wait -PassThru
-        if($removed.ExitCode -ne 0 -or (Get-Service SbieSvc -ErrorAction SilentlyContinue)){throw 'FRESH_INSTALL_FIXTURE_ENGINE_REMOVAL_FAILED'}
-        & (Join-Path $PSScriptRoot 'Test-IntegratedPackage.ps1') -OfficialExecutable (Join-Path $root 'official-unpacked\app\Claude.exe') -FreshEngine
-        Write-Host 'PASS actual customer setup installs fresh signed engine and starts official desktop'
-    }
     [ordered]@{passed=$results.Count;mode='SIGNED_ENGINE_FOUNDATION_ONLY';officialDesktopAccepted=$false;customerAccepted=$false;signer=$signature.SignerCertificate.Subject;hostNetworkSettingsChanged=$false;scope='fresh disposable CI runner only'} | ConvertTo-Json | Set-Content (Join-Path $root 'foundation-status.json') -Encoding UTF8
 } catch {
     $failure=$_.Exception.Message
