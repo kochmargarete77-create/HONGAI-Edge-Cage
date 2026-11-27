@@ -1,0 +1,70 @@
+{
+  "schema": "hongai.cage.installer-evidence.v2",
+  "version": "0.3.0-pilot.3",
+  "withdrawnVersion": "0.3.0-pilot.2",
+  "dateLocal": "2026-11-26",
+  "windows": {
+    "sourceCommit": "9adb63955a4bc9eed24f41615472ab251fc4536e",
+    "run": 45935635169,
+    "jobs": [
+      {
+        "name": "foundation (windows-2025)",
+        "conclusion": "success"
+      },
+      {
+        "name": "foundation (windows-2022)",
+        "conclusion": "success"
+      }
+    ],
+    "source": "REAL_REGISTERED_MSIX_PRIVATE_SIGNED_COPY",
+    "installedVersion": "6.28899.6.0 x64",
+    "existingAndFreshCore": "PASS",
+    "installedUI": "PASS",
+    "savedConfigurationDailyLaunch": "PASS",
+    "storageBudgetCheck": "PASS",
+    "recoverableUninstall": "PASS",
+    "packageIdentityRetained": false
+  },
+  "macos": {
+    "sourceCommit": "bed61340fc5c1b6d5a710ade4cec2058df26918c",
+    "run": 45934735499,
+    "jobs": [
+      {
+        "name": "macos (macos-15-intel)",
+        "conclusion": "success"
+      },
+      {
+        "name": "macos (macos-15)",
+        "conclusion": "success"
+      },
+      {
+        "name": "macos (macos-26)",
+        "conclusion": "success"
+      },
+      {
+        "name": "macos (macos-26-intel)",
+        "conclusion": "success"
+      }
+    ],
+    "installedUI": "PASS",
+    "savedConfigurationDailyLaunch": "PASS",
+    "sessionGroupOwnership": "PASS",
+    "uninstall": "PASS"
+  },
+  "packages": {
+    "Windows": {
+      "filename": "HONGAI-CAGE-Desktop-0.3.0-pilot.3-Windows-x64-Setup.exe",
+      "bytes": 3203072,
+      "sha256": "3247CCF01AED9F8BB7A35F8363629FB54EB489F274730BD18C92AF955E004DF2"
+    },
+    "Mac": {
+      "filename": "HONGAI-CAGE-Desktop-0.3.0-build8-macOS-Universal.pkg",
+      "bytes": 228533,
+      "sha256": "4d4896bd1ff914cce25520f2cedab82bb99f886ba6e65a2050bf1edf4b19f2f3"
+    }
+  },
+  "loginAttempted": false,
+  "fullBusinessAccepted": false,
+  "hostNetworkModifiedLocally": false,
+  "assessmentWeightsChanged": false
+}

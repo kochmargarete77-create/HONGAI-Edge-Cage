@@ -1,19 +1,29 @@
-# HONG AI CAGE Desktop Native
+# HONG AI CAGE Desktop Native — pilot.3
 
-Lightweight adapters that launch the unmodified, signature-verified official Claude Desktop inside an OS process boundary. These are native desktop launchers; the separate WEB_ISOLATION archive remains a web wrapper.
+Native launchers for signature-verified official Claude Desktop files, with a session-owned loopback gateway and an inherited process boundary. This is separate from the WEB_ISOLATION wrapper.
 
-Windows 0.3.0-pilot.2 packages the unmodified, signed GPLv3 Sandboxie Classic 5.74.1 core. A box-wide network policy admits only a session-owned IPv4 loopback gateway; tool descendants inherit the boundary. The gateway forwards to one enrolled Clash endpoint, rejects local/private destinations, and expires on a monotonic health lease. The installer supports a fresh core or compatible existing core and uses recoverable uninstall.
+## Important correction from pilot.2
 
-macOS 0.3.0 build 7 is a universal AppKit application using the system process sandbox and a session-owned gateway. No VM, TUN, Wi-Fi, DNS, system proxy, routing, or Network Extension configuration is installed. Its protection applies to the process tree launched by CAGE.
+The previous CI used an extracted MSIX executable, while the customer path used an installed WindowsApps executable. Those are different launch conditions. Customer evidence supersedes any claim that the old tests established registered-MSIX compatibility. pilot.2 has been withdrawn from the local sending area.
 
-Actual installer, native UI and signed official desktop offline-start checks run on Windows Server 2022/2025 and macOS 15/26 on Apple Silicon/Intel. Checks do not authenticate an account or prove business acceptance. Windows 10/11 consumer hardware, physical M5 systems, login, full MCP/extensions, Cowork, system delegation and production publishing remain separate acceptance items.
+Windows pilot.3 discovers the real registered official x64 MSIX, reads its app files into a private runtime, compares every copied file by SHA256, verifies the official executable signature, and starts that byte-identical payload inside the signed Sandboxie Classic core. It never changes WindowsApps permissions, invokes the execution alias outside the box, or replaces isolation with broad firewall exceptions. The private runtime has no MSIX package identity. Protocol callbacks, notifications, updates, Cowork and package-dependent integration are separate acceptance items.
 
-Installable pilot packages are distinct from a customer-accepted full-feature product. Do not label untested capabilities as PASS, claim hardware fingerprint removal, or describe network enforcement as automatic redaction of arbitrary file/tool content. macOS currently uses ad-hoc code signing and an unnotarized package; Windows' HONG AI setup has no organizational signature, while bundled upstream components retain their original valid signatures.
+Saved setup is now the normal launch path: importing the Clash handoff and choosing a workspace are first-use actions. Later launches start the official desktop automatically. Windows controls are in the tray; Mac controls are in the menu bar. Settings are shown on request or when startup fails.
 
-Read the plain-text documents in docs. The Clash handoff is an enrolled endpoint/IP identity, not proof of every connection's internal proxy chain. Prefer a dedicated Clash listener pinned directly to the final outbound. Existing broad rules must not be silently removed.
+macOS build 8 also fixes the Foundation Process group-leader/setsid mismatch missed by earlier direct-CLI tests. The helper verifies its own session and process-group ownership before exec. Installed-app daily launch is now tested in addition to CLI smoke tests.
 
-Frozen runtime source for both platforms: commit f1ffecd6e7bf99007d9f17d7de7547decb1fb691.
-Windows acceptance: https://github.com/kochmargarete77-create/HONGAI-Edge-Cage/actions/runs/45904904009
-Mac acceptance: https://github.com/kochmargarete77-create/HONGAI-Edge-Cage/actions/runs/45904903997
+## Evidence
 
-Licenses and corresponding-source directions for the bundled Classic component are installed under licenses. Its identity and notices are preserved. HONG AI is an independent integration, without vendor certification or endorsement.
+Windows runtime and test source: 9adb63955a4bc9eed24f41615472ab251fc4536e.
+Actual registered MSIX, existing/fresh core, cold start, saved-setup automatic launch, storage checks and recoverable uninstall: Windows Server 2022/2025, https://github.com/kochmargarete77-create/HONGAI-Edge-Cage/actions/runs/45935635169
+
+Mac source: bed61340fc5c1b6d5a710ade4cec2058df26918c.
+Actual package install, official desktop, installed-workbench launch, saved setup, inherited boundary and uninstall: macOS 15/26 on Apple Silicon/Intel, https://github.com/kochmargarete77-create/HONGAI-Edge-Cage/actions/runs/45934735499
+
+These are installation-test results, not real-account or full-business acceptance. No login was performed. Concrete client hardware, authentication, MCP/extensions, Cowork and system delegation remain unaccepted until tested. Both platforms require use of the CAGE entry point; the ordinary system Claude icon is outside this claim.
+
+The installers do not edit host Wi-Fi, TUN, DNS, system proxy or routes. The enrolled Clash endpoint must be a dedicated listener pinned to the final outbound. Enrollment is not per-connection routing attestation. No hardware fingerprint removal, arbitrary content redaction or zero-leakage guarantee is claimed.
+
+The setup lacks organizational Windows signing, and the Mac package is ad-hoc signed and unnotarized. Use normal operator-approved installation flows, not disabled platform protections. Original Sandboxie Classic identity, valid signatures, GPLv3 notices and corresponding-source directions are retained.
+
+Read the TXT documents in docs for installation, recovery and exact limitations.

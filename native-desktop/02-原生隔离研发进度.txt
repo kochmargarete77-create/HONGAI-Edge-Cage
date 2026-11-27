@@ -1,21 +1,21 @@
-HONG AI CAGE｜双端原生安装进度
+HONG AI CAGE｜pilot.3 安装与复测状态
 2026-11-26
 
-Windows 0.3.0-pilot.2 已生成实际 Setup.exe，约 3.2 MB。
-两代 Windows 测试系统已跑过实际安装、首次核心安装、官方 Claude 离线启动、原生界面、停止和可恢复卸载。
-本机额外核验了安装器内嵌载荷与原生界面，不在本机安装隔离驱动，不改本机网络。
+pilot.2 已因客户的已注册 MSIX 路径启动失败而撤下。原报告保存在 evidence/customer-msix-20261126，不上传客户原始内容。
 
-Mac 0.3.0 为 Apple Silicon / Intel 通用原生应用和 .pkg，约 0.2 MB。
-此前 macOS 15/26 的两种架构均通过安装、官方进程离线启动、界面与卸载。
-最终构建增加自有缓存预算检查与宿主浏览器资料保护，四组复测均已通过。
-双端最终运行代码：f1ffecd6e7bf99007d9f17d7de7547decb1fb691。
+Windows pilot.3：
+从真实注册的官方 x64 MSIX 取得文件，建立逐文件校验的官方运行副本，保留文件和签名，再在专用隔离区启动。原安装与 WindowsApps 权限不改，不走箱外执行别名。
+Windows Server 2022/2025 两组通过实际安装器、已有/全新核心、官方进程入箱、容量巡检、保存配置后直接启动、停止和可恢复卸载。
+CI：45935635169；源码：9adb63955a4bc9eed24f41615472ab251fc4536e。
 
-这些是可安装的桌面隔离试用包，不是旧网页外壳，也不是虚拟机。
-真实登录、全部 MCP/扩展、Cowork、系统集成与具体客户机器仍须单独验收。
-正式交付结论不由编译成功或离线启动替代；未测试项不得计为 PASS。
+Mac build 8：
+修复 Foundation 进程组造成的 setsid 失败；除 CLI 外新增真实安装工作台、保存配置后自动启动测试。
+macOS 15/26、Apple Silicon/Intel 四组全部通过。
+CI：45934735499；源码：bed61340fc5c1b6d5a710ade4cec2058df26918c。
 
-工程：E:\codexdata\HONGAI-CAGE-Desktop-Native
-开发分支：
-https://github.com/kochmargarete77-create/HONGAI-Edge-Cage/tree/native-desktop-development/native-desktop
+日常双击 CAGE 自动启动，首次配置不再重复显示。设置和停止移到托盘/菜单栏。
+发送区现为第一步 r9 衔接包与第二步 pilot.3；第一步评分权重未改。
+本机只做只读源文件验证、运行副本校验与 UI 冒烟；未安装隔离驱动，未改系统网络，ToDesk 保持运行。
 
-具体功能、安装和恢复请读取 docs 中的 TXT 说明。
+仍需客户实体机复测真实登录、协议回调、聊天、MCP/扩展和系统集成。Windows 副本不保留 MSIX 包身份，不把这些功能提前判为通过。
+具体文件与 SHA256 见 DELIVERY-RECEIPT.json 和桌面发送区。
