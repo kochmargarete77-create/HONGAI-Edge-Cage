@@ -1,0 +1,67 @@
+name: Native environment tool privacy component
+on:
+  push:
+    branches: [native-desktop-development]
+    paths: ['native-desktop/environment-tools/**', '.github/workflows/environment-tools.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [windows-2022, windows-2025, macos-15, macos-15-intel, macos-26, macos-26-intel]
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        working-directory: native-desktop/environment-tools
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.27.4'
+          cache: false
+      - name: Windows native build and real executable checks
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:GOCACHE=Join-Path $env:RUNNER_TEMP 'hongai-go-cache'
+          $env:GOTMPDIR=Join-Path $env:RUNNER_TEMP 'hongai-go-tmp'
+          New-Item -ItemType Directory -Path $env:GOTMPDIR -Force|Out-Null
+          $env:CGO_ENABLED='0';$env:GOTOOLCHAIN='local';$env:GOMAXPROCS='2'
+          $env:HONGAI_TEST_ROOT=Join-Path (Get-Location) '.fixtures'
+          New-Item -ItemType Directory -Path $env:HONGAI_TEST_ROOT,dist -Force|Out-Null
+          $env:HONGAI_TOOL_BINARY=Join-Path (Get-Location) 'dist/hongai-tools.exe'
+          go build -buildvcs=false -trimpath -ldflags '-s -w' -o $env:HONGAI_TOOL_BINARY .
+          if($LASTEXITCODE){throw 'BUILD_FAILED'}
+          go test -v -count=1 ./... 2>&1|Tee-Object -FilePath dist/native-tests.txt
+          if($LASTEXITCODE){throw 'NATIVE_TESTS_FAILED'}
+          & $env:HONGAI_TOOL_BINARY version|Out-File dist/component-status.json -Encoding utf8
+          (Get-FileHash $env:HONGAI_TOOL_BINARY).Hash|Out-File dist/SHA256.txt -Encoding utf8
+      - name: Mac native build, protected storage, installation and real executable checks
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CGO_ENABLED=0 GOTOOLCHAIN=local GOMAXPROCS=2
+          export GOCACHE="$RUNNER_TEMP/hongai-go-cache" GOTMPDIR="$RUNNER_TEMP/hongai-go-tmp"
+          mkdir -p "$GOTMPDIR" .fixtures dist
+          export HONGAI_TEST_ROOT="$(pwd -P)/.fixtures"
+          export HONGAI_TOOL_BINARY="$(pwd -P)/dist/hongai-tools"
+          go build -buildvcs=false -trimpath -ldflags '-s -w' -o "$HONGAI_TOOL_BINARY" .
+          codesign --force --sign - --timestamp=none "$HONGAI_TOOL_BINARY"
+          go test -v -count=1 ./... 2>&1 | tee dist/native-tests.txt
+          GOARCH=amd64 go build -buildvcs=false -trimpath -ldflags '-s -w' -o dist/hongai-tools-amd64 .
+          GOARCH=arm64 go build -buildvcs=false -trimpath -ldflags '-s -w' -o dist/hongai-tools-arm64 .
+          lipo -create -output dist/hongai-tools-universal dist/hongai-tools-amd64 dist/hongai-tools-arm64
+          codesign --force --sign - --timestamp=none dist/hongai-tools-universal
+          codesign --verify --strict dist/hongai-tools-universal
+          dist/hongai-tools-universal version > dist/component-status.json
+          shasum -a 256 dist/hongai-tools-universal > dist/SHA256.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-tool-privacy-${{ matrix.runner }}
+          path: native-desktop/environment-tools/dist/

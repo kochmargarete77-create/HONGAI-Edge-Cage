@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "rules": [
+    {"id": "test_only_network", "value": "198.51.100.44", "encodings": ["url", "base64"]},
+    {"id": "test_only_secret", "value": "REPLACE_THIS_SYNTHETIC_CANARY", "encodings": ["base64"]}
+  ]
+}
