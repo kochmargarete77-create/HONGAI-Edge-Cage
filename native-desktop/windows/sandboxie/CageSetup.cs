@@ -29,7 +29,13 @@ internal static class CageSetup {
             bool admin=new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator);
             start.UseShellExecute=!admin;start.CreateNoWindow=admin;start.WindowStyle=ProcessWindowStyle.Hidden;
             if(!admin)start.Verb="runas";
-            using(var p=Process.Start(start)){p.WaitForExit();if(ci){string destination=Environment.GetEnvironmentVariable("HONGAI_CAGE_CI_RESULT");if(!String.IsNullOrEmpty(destination)&&File.Exists(result))File.Copy(result,destination,true);}if(p.ExitCode!=0||!File.Exists(result))throw new Exception("安装未完成，请查看："+work);}
+            using(var p=Process.Start(start)){
+                Form progress=null;
+                if(!ci){progress=new Form{Text="HONG AI CAGE · 安装",Width=510,Height=160,StartPosition=FormStartPosition.CenterScreen,FormBorderStyle=FormBorderStyle.FixedDialog,ControlBox=false};var label=new Label{Text="正在核验环境、下载所缺的官方依赖并安装。\n首次下载可能需要几分钟，请保持 Clash 和远控运行。",Left=18,Top=18,Width=470,Height=48};var bar=new ProgressBar{Style=ProgressBarStyle.Marquee,Left=18,Top=75,Width=460,Height=18};progress.Controls.Add(label);progress.Controls.Add(bar);progress.Show();}
+                try{while(!p.WaitForExit(100)){if(!ci)Application.DoEvents();}}finally{if(progress!=null){progress.Close();progress.Dispose();}}
+                if(ci){string destination=Environment.GetEnvironmentVariable("HONGAI_CAGE_CI_RESULT");if(!String.IsNullOrEmpty(destination)&&File.Exists(result))File.Copy(result,destination,true);}
+                if(p.ExitCode!=0||!File.Exists(result))throw new Exception("安装未完成，原网络未改动。\n兼容检查及阶段错误记录："+work);
+            }
             if(!ci)MessageBox.Show("安装完成。请从桌面的 HONG AI CAGE 打开。\n首次导入第一步交接文件，并选择工作文件夹。\n以后启动会自动重新核对已保存的最终出口。\n本次未登录 Claude。","HONG AI CAGE");
             return 0;
         }catch(Exception error){if(!ci)MessageBox.Show(error.Message,"HONG AI CAGE 安装停止");else{string destination=Environment.GetEnvironmentVariable("HONGAI_CAGE_CI_RESULT");if(!String.IsNullOrEmpty(destination)&&!File.Exists(destination))File.WriteAllText(destination,error.ToString());}return 1;}

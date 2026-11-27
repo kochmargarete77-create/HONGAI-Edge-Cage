@@ -8,6 +8,7 @@ import tempfile
 import datetime
 import shutil
 import socket
+import time
 
 
 def run(command, **kwargs):
@@ -61,6 +62,11 @@ def main():
             if 'PASS daily automatic launch' not in daily.stdout:
                 raise RuntimeError('DAILY_SAVED_CONFIGURATION_LAUNCH_NOT_ACCEPTED')
             print(daily.stdout.strip(),flush=True)
+            time.sleep(2)
+            cached=run([str(executable),'--daily-launch-smoke-test'])
+            if 'PASS daily automatic launch' not in cached.stdout:
+                raise RuntimeError('VERIFIED_SNAPSHOT_REUSE_FAILED')
+            print('PASS second daily launch reuses the signed private official snapshot',flush=True)
         print(json.dumps({"installer":"PASS","universal":"PASS","signature":"AD_HOC_VALID","nativeUI":"PASS",
                           "loginAttempted":False,"hostNetworkSettingsChanged":False,"customerAccepted":False}),flush=True)
     finally:

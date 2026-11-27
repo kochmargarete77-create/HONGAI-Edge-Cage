@@ -213,6 +213,19 @@ enum CageRuntime {
         try OfficialRuntime.verify(app)
         return app.resolvingSymlinksInPath()
     }
+    static func record(_ phase:String,_ message:String) {
+        let fm=FileManager.default,root=fm.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/HONGAI-CAGE-Desktop")
+        do {
+            try fm.createDirectory(at:root,withIntermediateDirectories:true,attributes:[.posixPermissions:0o700])
+            guard root.resolvingSymlinksInPath() == root.standardizedFileURL else {return}
+            let file=root.appendingPathComponent("installation-session.jsonl")
+            if let size=(try? fm.attributesOfItem(atPath:file.path)[.size]) as? NSNumber,size.intValue > 1_048_576 {try fm.removeItem(at:file)}
+            var data=try JSONSerialization.data(withJSONObject:["utc":ISO8601DateFormatter().string(from:Date()),"phase":phase,"message":String(message.prefix(2000)),"hostNetworkSettingsChanged":false])
+            data.append(10)
+            if !fm.fileExists(atPath:file.path){fm.createFile(atPath:file.path,contents:nil,attributes:[.posixPermissions:0o600])}
+            let handle=try FileHandle(forWritingTo:file);defer {try? handle.close()};try handle.seekToEnd();try handle.write(contentsOf:data)
+        } catch { /* Diagnostics must never enable or bypass network admission. */ }
+    }
     static func profile(port: Int, application: URL, home: URL) throws -> String {
         let deny = [application.path,
                     home.appendingPathComponent("Library/Application Support/Claude").path,
@@ -361,8 +374,9 @@ final class CageController: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 let root=FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/HONGAI-CAGE-Desktop")
                 let h=file.flatMap{try? Handoff.decode(Data(contentsOf:$0),requireFresh:false)}
                 let result=try OfficialRuntime.installLatest(root:root,proxy:h?.proxy)
+                CageRuntime.record("OFFICIAL_UPDATE",result)
                 DispatchQueue.main.async {self.busy=false;self.start.isEnabled=true;self.status.stringValue=result}
-            } catch {DispatchQueue.main.async {self.busy=false;self.start.isEnabled=true;self.status.stringValue="更新未应用：\(error)。保留已有版本。"}}
+            } catch {CageRuntime.record("OFFICIAL_UPDATE_BLOCKED",String(describing:error));DispatchQueue.main.async {self.busy=false;self.start.isEnabled=true;self.status.stringValue="更新未应用：\(error)。保留已有版本。"}}
         }
     }
     func message(_ text:String) { DispatchQueue.main.async { self.status.stringValue=text } }
@@ -380,11 +394,18 @@ final class CageController: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 guard !workspace.path.hasPrefix(root.path+"/"),!root.path.hasPrefix(workspace.path+"/"),workspace != root,!home.path.hasPrefix(workspace.path+"/") else {throw CageFailure("请选择独立项目目录，不能选择系统、用户根目录或隔离配置目录。")}
                 let enrolled=root.appendingPathComponent("enrolled-handoff.json")
                 let admissionData=try Data(contentsOf:file)
-                let h=try Handoff.decode(admissionData,requireFresh:file.standardizedFileURL != enrolled.standardizedFileURL), source=try CageRuntime.officialApp()
+                let h=try Handoff.decode(admissionData,requireFresh:file.standardizedFileURL != enrolled.standardizedFileURL)
                 for _ in 0..<3 { try CageRuntime.verifyExit(h) }
                 guard root.resolvingSymlinksInPath() == root.standardizedFileURL else {throw CageFailure("隔离目录包含链接，请由维护人员检查。")}
                 try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true,attributes:[.posixPermissions:0o700])
+                let sources=[URL(fileURLWithPath:"/Applications/Claude.app"),home.appendingPathComponent("Applications/Claude.app")]
+                if !sources.contains(where:{FileManager.default.fileExists(atPath:$0.path)}) {
+                    self.message("首次安装：正在获取官方 Claude，无需 Homebrew、Python 或开发工具……")
+                    _=try OfficialRuntime.installLatest(root:root,proxy:h.proxy)
+                }
+                let source=try CageRuntime.officialApp()
                 let app=try OfficialRuntime.snapshot(source,root:root)
+                CageRuntime.record("RUNTIME_VERIFIED",try OfficialRuntime.version(app))
                 let ownProfile=root.appendingPathComponent("profile"), temp=root.appendingPathComponent("temp"), toolHome=root.appendingPathComponent("tool-home")
                 for item in [ownProfile,temp,toolHome] { try FileManager.default.createDirectory(at:item,withIntermediateDirectories:true,attributes:[.posixPermissions:0o700]) }
                 let broker=SessionBroker(upstream:UInt16(h.loopback.mixedPort));try broker.start()
@@ -411,6 +432,7 @@ final class CageController: NSObject, NSApplicationDelegate, NSWindowDelegate {
                         self.handoffURL=enrolled
                         p.terminationHandler={ _ in DispatchQueue.main.async { if self.process === p { self.stopSession(); self.status.stringValue="桌面进程已退出。" } } }
                         self.status.stringValue="隔离会话运行中；指定出口 \(h.expectedEgressIp)。"
+                        CageRuntime.record("RUNNING","Signed private runtime; saved handoff; child process boundary active")
                         self.timer=Timer.scheduledTimer(withTimeInterval:4,repeats:true) { _ in self.verifyRunning(h,token:token) }
                         if CommandLine.arguments.contains("--daily-launch-smoke-test"),ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] == "true",ProcessInfo.processInfo.environment["RUNNER_OS"] == "macOS" {
                             DispatchQueue.main.asyncAfter(deadline:.now()+8){
@@ -421,7 +443,7 @@ final class CageController: NSObject, NSApplicationDelegate, NSWindowDelegate {
                         }
                     } catch {broker.stop();self.stopSession();self.status.stringValue="启动失败：\(error)";self.showSettings()}
                 }
-            } catch { DispatchQueue.main.async { self.busy=false; self.start.isEnabled=true; self.status.stringValue="未启动：\(error)";self.showSettings() } }
+            } catch { CageRuntime.record("BLOCKED",String(describing:error));DispatchQueue.main.async { self.busy=false; self.start.isEnabled=true; self.status.stringValue="未启动：\(error)";self.showSettings() } }
         }
     }
     func verifyRunning(_ h:Handoff,token:UUID) {

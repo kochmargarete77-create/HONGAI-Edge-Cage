@@ -1,0 +1,50 @@
+HONG AI CAGE｜安装、常驻与版本维护
+适用版本：Windows 0.3.0-pilot.4；macOS 0.3.0 build 9。
+
+一、一次安装，日常双击
+第一次：检查环境 → 安装所缺的官方依赖 → 授予必要安装权限 → 导入第一步交接文件 → 选择项目文件夹 → 启动。
+以后：双击 HONG AI CAGE → 自动核验已保存出口和官方签名 → 启动隔离桌面进程。
+更换代理线路、最终出口或项目时，才进入设置。关闭设置窗口不会关闭正在运行的守护；“停止并退出”才结束本工具的会话。
+不设置强制开机启动，不把独立后台服务当成保护成立的唯一条件；只有 CAGE 入口启动的会话在保护范围内。原版 Claude 图标不在保护声明内。
+
+二、安装器应负责的工作
+Windows：选择系统自带 PowerShell 5.1；检查系统版本、x64 架构、AppX、.NET、已存在的隔离核心；包含原版签名 Sandboxie Classic 核心、运行程序、预检和恢复脚本。
+官方 Claude 缺失或较旧时，查询官方 Stable MSIX 地址并下载，校验 Anthropic 签名、包标识、架构和版本；已知发布版本另核对固定 SHA256。新版本只有官方 HTTPS 地址和有效 Anthropic 签名同时成立才接纳。
+官方更新源暂不可达时，可采用包内已核验发布目录，不声称查询到了最新版本。已装更高版本不降级。不自动卸载、重置、注销 Claude 包，不清除客户登录态或 Cowork 文件来“修好安装”。
+Mac：Universal 程序已包含 arm64 和 x86_64 二进制及会话辅助程序；不要求客户安装 Xcode、Homebrew、Python、Node、Linux 或虚拟机。
+官方 Claude 缺失时，首次启动通过已验收代理下载；也可在设置点击“安装或更新官方 Claude”。读取官方 RELEASES.json，验证版本、签名、Anthropic Team ID、Bundle ID 和最低系统要求，安装到客户自己的 ~/Applications。
+安装结束不自动登录、不读取客户密码、不自动授予其他应用的权限。
+
+三、授权分开处理
+Windows 的系统隔离组件需要一次管理员授权。若客户账户与输入的管理员账户不同，不能把 Claude 误装在管理员账户下；原用户注册缺失时保留现场，报告原用户上下文问题，不代客户退出登录或重启。
+Mac 的系统级 PKG 安装由系统安装器请求管理员授权。用户目录的官方 Claude 安装不要求全盘访问权限。
+CAGE 的网络边界和菜单栏守护不需要屏幕录制、辅助功能、自动化、全盘访问、网络扩展或系统扩展授权。
+若客户随后启用 Claude 的屏幕操作、桌面自动化、麦克风、文件工具等功能，由系统按该功能向实际调用的应用请求授权；不得冒称已包含，也不得一键全开。
+不关闭 Gatekeeper、SIP、防火墙或杀毒软件来让包运行。当前 Mac CAGE 自身没有 Apple Developer 公证，正常系统检查或手动允许可能仍出现；官方 Claude 签名另行验证。
+
+四、更新后继承边界
+更新主体是官方程序，规则主体是 CAGE 会话。版本号、安装目录变化或新增公开域名不改变“整个进程树只连接会话网关”的原则。
+Windows 从真实注册的官方 MSIX 获取逐文件一致的私有签名运行副本；不直接启动 WindowsApps 下受 AppModel 约束的 EXE，不使用原版执行别名绕到箱外。
+Mac 从当前有效签名的官方应用生成独立签名副本，运行期间不依赖被外部更新器替换的原应用目录。
+完整候选核验后才提交；通常保留当前和一个先前完整运行版本。故障时保留完整版本与用户数据，不自动运行原版，不切 DIRECT，不放宽网络边界。
+Windows 的缓存版本轮换已覆盖连续四次更新测试；失败阶段不再因“已有两个目录”阻止之后的正常升级。
+升级不热替换正在运行的隔离进程。先停止会话，再更新，下次启动重新核验出口、签名和策略。配置与登录数据不随程序更新复制或清除。
+已保留的上一版仅供维护回退；新版可能升级用户数据格式，不能保证随意降级后仍能读旧数据，不自动降级运行。
+
+五、减少重复修复
+以下属于环境适配：系统不支持、共享驱动被其他产品管理、企业策略冲突、AppLocker/EDR 拦截、不同管理员身份、所选目录权限不足。输出明确原因和本机记录，不要求客户改产品源码。
+以下属于产品缺陷：内部字段错误、错误启动方式、更新缓存堵塞、安装提交不一致、缺少必要脚本、反复要求选择已保存配置。应修订产品并回归测试，不把修改脚本作为正常安装步骤。
+首次失败后保留配置、日志和恢复材料。相同原因不得反复重新下载、重装、删登录态或重启碰运气。
+
+六、记录与验收
+Windows：安装工作目录的 compatibility-report.json、installation-result.json；数据目录的 session-status.json、官方更新结果 JSON、OfficialRuntime/runtime-state.json。
+Mac：~/Library/Application Support/HONGAI-CAGE-Desktop/installation-session.jsonl；失败显示在设置窗口，日志限制约 1 MB。记录保存在本机，不自动回传。
+需要覆盖：缺少官方程序的安装、已有较新程序不降级、真实官方签名、完整安装、连续启动、保存配置复用、更新缓存轮换、损坏拒绝、出口故障断联、停止与恢复。
+自动化 CI 的无登录测试不等于客户账号登录、OAuth 回跳、本地 MCP、扩展、Cowork 或所有系统集成都已验收。Mac 实体客户机和 Windows 个人系统仍需要记录实际结果。
+本包不修改客户系统代理、TUN、网卡 DNS、路由、Wi-Fi、ToDesk，不执行客户电脑重启。
+
+官方资料（2026-11-26 核对）
+https://support.claude.com/en/articles/12622703-deploy-claude-desktop-for-windows
+https://support.claude.com/en/articles/12611117-deploy-claude-desktop-for-macos
+https://support.claude.com/en/articles/12622667-enterprise-configuration-for-claude-desktop
+https://claude.com/download
