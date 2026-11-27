@@ -1,0 +1,46 @@
+name: Cowork readiness module checks
+on:
+  push:
+    branches: [native-desktop-development]
+    paths: ['native-desktop/cowork/**', '.github/workflows/cowork-readiness.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [windows-2022, windows-2025]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Check policy and read-only machine probe
+        shell: powershell
+        run: |
+          ./native-desktop/cowork/Test-Readiness-Policy.ps1
+          foreach($mode in @('Unknown','Cloud','LocalVM')){
+            $r=./native-desktop/cowork/Check-Cowork-Windows.ps1 -Mode $mode | ConvertFrom-Json
+            if($r.mode -ne $mode -or $r.hostNetworkSettingsChanged -or $r.coworkEnabledByThisCheck -or $r.cageCoworkBoundaryAccepted){throw 'READINESS_PROBE_MUST_NOT_MUTATE_OR_FALSELY_ACCEPT'}
+          }
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-15-intel, macos-26, macos-26-intel]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Read-only modes produce valid reports without approving Cowork
+        run: |
+          bash -n native-desktop/cowork/Check-Cowork-Mac.command
+          python3 - <<'PY'
+          import json,subprocess
+          for mode in ('Unknown','Cloud','LocalVM'):
+              r=json.loads(subprocess.check_output(['bash','native-desktop/cowork/Check-Cowork-Mac.command',mode],text=True))
+              assert r['mode']==mode
+              assert not any(r[k] for k in ('coworkEnabledByThisCheck','automaticInstallationAllowed','automaticRebootAllowed','hostNetworkSettingsChanged','cageCoworkBoundaryAccepted'))
+              assert r['machineFacts']['memoryBytes']>0
+              if mode=='Cloud': assert r['cloudTaskOutboundUsesLocalProxy'] is False
+          print('PASS read-only Cowork modes, no forced virtualization/reboot and no false network acceptance')
+          PY

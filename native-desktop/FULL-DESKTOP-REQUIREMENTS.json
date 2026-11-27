@@ -1,0 +1,33 @@
+{
+  "schema": "hongai.full-desktop-requirements.v1",
+  "product": "HONG AI CAGE Desktop",
+  "currentBuild": "0.3.0-pilot.4 / macOS build 9",
+  "fullDesktopAccepted": false,
+  "coworkSupportRequiredInFullEdition": true,
+  "coworkDeliveryPlan": "cowork/COWORK-DELIVERY-PLAN.json",
+  "coworkEnablement": "PER_CUSTOMER_MODE_AND_NETWORK_BOUNDARY_ACCEPTANCE",
+  "meaningOfPilot": "Test release number; not a separate Power Light product",
+  "requiredCapabilities": [
+    {"id":"F01","name":"Unmodified signed official desktop application","windows":"CI_PASS","macos":"CI_PASS"},
+    {"id":"F02","name":"Inherited network boundary and fail-closed gateway","windows":"CI_TESTED_CASES_PASS","macos":"CI_TESTED_CASES_PASS"},
+    {"id":"F03","name":"First-use setup followed by saved-config daily launch","windows":"CI_PASS","macos":"CI_PASS"},
+    {"id":"F04","name":"Official update lifecycle without widening the network policy","windows":"PARTIAL_REAL_SINGLE_VERSION_AND_SYNTHETIC_ROTATION","macos":"PARTIAL_REAL_SINGLE_VERSION_AND_SNAPSHOT_REUSE"},
+    {"id":"F05","name":"Real local MCP integration in authenticated desktop session","windows":"NOT_ACCEPTED","macos":"NOT_ACCEPTED"},
+    {"id":"F06","name":"Authenticated application reads and writes authorized project files","windows":"BOUNDARY_FIXTURE_PASS_APP_INTEGRATION_PENDING","macos":"BOUNDARY_FIXTURE_PASS_APP_INTEGRATION_PENDING"},
+    {"id":"F07","name":"Official desktop extensions install and execute inside boundary","windows":"NOT_ACCEPTED","macos":"NOT_ACCEPTED"},
+    {"id":"F08","name":"Real login, OAuth callbacks and authentication continuity","windows":"NOT_ACCEPTED_PACKAGE_IDENTITY_NOT_RETAINED","macos":"NOT_ACCEPTED"},
+    {"id":"F09","name":"Global shortcuts, notifications and required system integrations","windows":"NOT_ACCEPTED_PACKAGE_DEPENDENT_FEATURES_PENDING","macos":"RESTRICTED_APPLE_EVENTS_AND_DELEGATED_LAUNCH"},
+    {"id":"F10","name":"Clearly declare Code and Cowork feature scope","windows":"CODE_AND_COWORK_DISABLED_BY_CURRENT_POLICY","macos":"NOT_ACCEPTED"},
+    {"id":"F11","name":"Organizational publisher signature and platform trust acceptance","windows":"ORGANIZATIONAL_SIGNATURE_MISSING","macos":"AD_HOC_ONLY_NOT_NOTARIZED"},
+    {"id":"F12","name":"Installation, exit and recovery without host network changes","windows":"CI_PASS","macos":"CI_PASS"},
+    {"id":"F13","name":"Resource limits and ordinary customer-machine compatibility","windows":"SOFT_BUDGET_ONLY_WINDOWS_CLIENT_VALIDATION_PENDING","macos":"SOFT_BUDGET_ONLY_CUSTOMER_MACHINE_VALIDATION_PENDING"},
+    {"id":"F14","name":"Runtime evidence of isolated authentication, configuration and extension storage paths","windows":"VIRTUALIZATION_BOUNDARY_TESTED_APP_STATE_AUDIT_PENDING","macos":"RESTRICTED_PATHS_TESTED_APP_STATE_AUDIT_PENDING"}
+  ],
+  "releaseRules": [
+    "Do not relabel a pilot as FULL_DESKTOP by changing filenames or copy.",
+    "Passing installer and unauthenticated UI tests does not accept authenticated functionality.",
+    "Do not enable privileged system delegation just to pass a usability test before its network boundary is implemented.",
+    "Do not remove first-stage assessment tooling when replacing a second-stage product.",
+    "Preserve the latest tested packages and recovery copies while developing the full-desktop implementation."
+  ]
+}

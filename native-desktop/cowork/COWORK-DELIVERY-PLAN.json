@@ -1,0 +1,56 @@
+{
+  "schema": "hongai.cowork-delivery-plan.v1",
+  "includeSupportInFullDesktopEdition": true,
+  "enablement": "PER_CUSTOMER_MODE_AND_CAPABILITY_ACCEPTANCE",
+  "separateCoworkApplication": false,
+  "officialDesktopIncludesFeature": true,
+  "currentCageCoworkEnabled": false,
+  "currentCageCoworkAccepted": false,
+  "usageRecommendations": {
+    "documentsAndAuthorizedFiles": "USEFUL",
+    "multiStepResearchAndOfficeAutomation": "USEFUL",
+    "chatOnly": "OPTIONAL",
+    "commerceAccountsRequiringSingleStaticEgress": "REQUIRE_ACTUAL_REQUEST_ORIGIN_AND_BROWSER_PATH_ACCEPTANCE"
+  },
+  "executionModes": {
+    "Cloud": {
+      "localVirtualizationMustNotBeAssumedRequired": true,
+      "cloudTaskOutboundControlledByLocalClash": false,
+      "localDesktopBridgeNeedsIndependentAcceptance": true
+    },
+    "LocalVM": {
+      "windowsRequiresOfficialMsixAndVmPlatform": true,
+      "mayRequireRestart": true,
+      "automaticEnableOrRestartDuringRemoteSession": false,
+      "vmServicesAndHelpersNeedNetworkBoundaryAcceptance": true
+    },
+    "Unknown": {"automaticInstallationAllowed": false,"mustInspectActualClientAndAccountMode": true}
+  },
+  "storage": {
+    "hongaiLayerBudgetSeparateFromOfficialRuntimeAndWorkData": true,
+    "combinedCoworkFootprintGuaranteedWithin5To10GB": false,
+    "largeOfflineRuntimeDownloads": "ON_DEMAND_OFFICIAL_SOURCE_ONLY"
+  },
+  "officialReadinessCheck": {
+    "windowsX64": "https://claude.ai/api/desktop/win32/x64/cowork-readiness-check/latest/redirect",
+    "macOSUniversal": "https://claude.ai/api/desktop/darwin/universal/cowork-readiness-check/latest/redirect",
+    "binaryBundled": false,
+    "fetchStatus": "LOCAL_HTTP_403_BROWSER_VERIFICATION_REQUIRED",
+    "verifyPublisherBeforeRunning": true
+  },
+  "officialOfflineRuntimes": {
+    "windowsX64": "https://claude.ai/api/desktop/win32/x64/offline/latest/redirect",
+    "macOSAppleSilicon": "https://claude.ai/api/desktop/darwin/arm64/offline/latest/redirect",
+    "macOSIntel": "https://claude.ai/api/desktop/darwin/x64/offline/latest/redirect"
+  },
+  "acceptanceMustCover": [
+    "actual cloud/local execution mode and account feature availability",
+    "native MSIX identity on Windows local-VM mode",
+    "official VM and helper installation and storage demand",
+    "all relevant host processes and VM/service network routes",
+    "proxy absent at launch, proxy loss and repeated reconnects",
+    "local application requests separated from cloud-side WebFetch/Search/MCP requests",
+    "authenticated task with authorized file read/write and required tools",
+    "exit, recovery and clean removal without host network reset"
+  ]
+}

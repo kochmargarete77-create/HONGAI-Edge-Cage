@@ -1,0 +1,45 @@
+HONG AI CAGE｜Cowork 配套模块
+
+是否需要
+建议完整版提供 Cowork 支持，按客户用途和机器条件启用。文档、表格、文件整理、调研与多步骤办公任务适合；仅聊天不必强制开启。
+电商后台、店铺登录和要求固定出口的浏览器业务，必须核验实际浏览器与请求来源；不能只看到 Cowork 入口就判定流量从本地 ISP 出口发出。
+
+随包内容
+HONG AI 只读预检脚本、官方就绪检测入口、官方运行组件安装入口、模式与验收规则。
+Cowork 是官方 Claude Desktop 的功能，不是另一个可单独安装的 HONG AI 软件。本配套模块不等于已经完成 Cowork 隔离或功能验收。
+当前 CAGE 中 Cowork 尚未启用/验收；不要自行把 secureVmFeaturesEnabled 改成 true 来假装适配完成。
+
+先区分模式
+1. 云端 Cowork：新版标准账号正在获得的体验，任务计算在 Anthropic 云端运行；需要本地文件、浏览器或电脑操作时通过已连接的桌面端提供。
+2. 本地虚拟机模式：桌面本地工作区及部分企业第三方部署；Windows 需要原生官方 MSIX、硬件虚拟化和 Virtual Machine Platform。
+3. 账号、版本和部署方式可能不同。未确认实际模式前，预检保持 Unknown；不自动给客户启用虚拟化或重启。
+第三方企业部署文档不应整体套到普通订阅账号上；按实际发行版本与界面确认。
+
+只读预检
+Windows：双击 00-检测本机Cowork-Windows.cmd，或由本机智能体执行 Check-Cowork-Windows.ps1。
+Mac：运行 Check-Cowork-Mac.command；本机智能体可执行 bash ./Check-Cowork-Mac.command。
+默认只读检查 Mode=Unknown。确认云端模式后用 Cloud；确认本地虚拟机模式后用 LocalVM。
+只检查系统能力、官方应用是否存在及可读取的签名。不会读取 Cookie、账号、密码、Token、订阅或 Clash 配置；不会安装软件、修改网络、启用系统功能或重启。
+HONG AI 预检不替代官方就绪检测，也不验证账号套餐权益或给 CAGE 判通过。
+
+官方就绪检测
+官方提供无需安装或登录的就绪工具。随包放的是官方下载入口，不是已下载的检测程序。
+本机自动获取该工具时遇到 HTTP 403 浏览器验证，因此没有冒充已打包或已验证其二进制。由操作者在浏览器完成正常下载，验证 Anthropic 签名后使用；不要下载第三方“修复版”。
+
+安装组件与容量
+Windows 本地模式必须保留官方 MSIX 注册与后台服务。现版 CAGE 私有副本不保留 MSIX 身份，此项未通过前禁止启用本地 Cowork。
+Mac 的本地模式仍需验证官方虚拟机和辅助服务是否完整受控。普通桌面进程的测试不能替代这些服务。
+官方离线安装变体包含较大的虚拟机与 CLI 运行组件，体积比标准安装包大数 GB；按需从官方源获取，不向所有客户无条件推送。
+HONG AI 自身隔离层与官方 Cowork 镜像、任务数据分别计算。不能承诺两者合计始终只占 5—10 GB。
+远控期间不自动启用虚拟化、重启、切换网卡、重置 DNS 或停用 Clash。需要重启时单独安排到可恢复的维护窗口。
+
+网络验收必须分开
+客户电脑上的 Claude、辅助程序、本地浏览器、MCP 与本地虚拟机出站，要逐个验证其批准路径和故障断联。
+云端任务访问第三方网站、服务端 WebFetch/Search 或远端 MCP，不由客户本机 Clash 决定出口；不能承诺它们都显示客户最终静态 IP。
+任务要求所有请求必须同一指定静态 IP 时，不满足条件的云端路径不得用于该任务。
+仅“设备支持 Cowork”或“功能开关开启”，不能判定固定出口、掉线保护或完整功能验收通过。
+
+资料核对：2026-11-26
+https://support.claude.com/en/articles/13345190-get-started-with-claude-cowork
+https://support.claude.com/en/articles/12622703-deploy-claude-desktop-for-windows
+https://claude.com/docs/third-party/claude-desktop/installation.md
