@@ -1,0 +1,26 @@
+{
+  "schema": "hongai.device-routing-policy.v1",
+  "revision": "2026.11.27-1",
+  "scope": "READ_ONLY_TRIAGE_NOT_ACCEPTANCE",
+  "rules": [
+    {"id":"PRODUCT_FULL_DESKTOP_UNACCEPTED","severity":"PRODUCT_GAP","when":[{"field":"target","op":"eq","value":"FullDesktop"}],"next":"REVIEW_PRODUCT_CAPABILITY_MATRIX_NO_CLIENT_REPAIR"},
+    {"id":"PLATFORM_UNKNOWN","severity":"REVIEW","when":[{"field":"platform","op":"notIn","value":["Windows","Mac"]}],"next":"CONFIRM_PLATFORM_NO_AUTOMATIC_INSTALL"},
+    {"id":"ARCHITECTURE_UNKNOWN","severity":"REVIEW","when":[{"field":"hardwareArchitecture","op":"notIn","value":["x64","arm64"]}],"next":"CONFIRM_HARDWARE_ARCHITECTURE"},
+    {"id":"WINDOWS_ARM64_NOT_SUPPORTED_BY_CURRENT_CAGE","severity":"BLOCK","when":[{"field":"platform","op":"eq","value":"Windows"},{"field":"hardwareArchitecture","op":"eq","value":"arm64"},{"field":"target","op":"in","value":["DesktopPilot","FullDesktop"]}],"next":"DO_NOT_INSTALL_X64_KERNEL_COMPONENTS"},
+    {"id":"WINDOWS_BUILD_UNKNOWN","severity":"REVIEW","when":[{"field":"platform","op":"eq","value":"Windows"},{"field":"windowsBuild","op":"missing"}],"next":"COLLECT_ACTUAL_OS_BUILD_WITH_CIM"},
+    {"id":"WINDOWS_BUILD_BELOW_CURRENT_BASELINE","severity":"BLOCK","when":[{"field":"platform","op":"eq","value":"Windows"},{"field":"windowsBuild","op":"lt","value":19041}],"next":"NO_OS_UPGRADE_OR_REBOOT_DURING_REMOTE_SERVICE"},
+    {"id":"MAC_VERSION_UNKNOWN","severity":"REVIEW","when":[{"field":"platform","op":"eq","value":"Mac"},{"field":"macMajor","op":"missing"}],"next":"CONFIRM_MACOS_VERSION"},
+    {"id":"MAC_VERSION_BELOW_CURRENT_BASELINE","severity":"BLOCK","when":[{"field":"platform","op":"eq","value":"Mac"},{"field":"macMajor","op":"lt","value":13}],"next":"REVIEW_SUPPORTED_DESKTOP_VERSION_NO_HOST_UPGRADE"},
+    {"id":"WINDOWS_SERVER_IS_NOT_CUSTOMER_CLIENT_ACCEPTANCE","severity":"REVIEW","when":[{"field":"platform","op":"eq","value":"Windows"},{"field":"windowsProductType","op":"in","value":[2,3]}],"next":"KEEP_SERVER_CI_SEPARATE_FROM_CLIENT_ACCEPTANCE"},
+    {"id":"ROSETTA_PROCESS_ON_APPLE_SILICON","severity":"REVIEW","when":[{"field":"rosettaTranslated","op":"eq","value":true}],"next":"SELECT_NATIVE_ARM64_OR_UNIVERSAL_TOOLS"},
+    {"id":"MULTIPLE_TUN_CANDIDATES","severity":"REVIEW","when":[{"field":"tunCandidateCount","op":"gte","value":2}],"next":"INSPECT_ACTUAL_ROUTES_WITHOUT_DISABLING_ADAPTERS"},
+    {"id":"MANAGED_CLAUDE_POLICY_PRESENT","severity":"REVIEW","when":[{"field":"managedPolicyPresent","op":"eq","value":true}],"next":"REVIEW_ADMIN_POLICY_NO_REGISTRY_OR_MDM_OVERRIDE"},
+    {"id":"EXISTING_CLAUDE_STATE_PRESERVE","severity":"NOTICE","when":[{"field":"existingClaudeStatePresent","op":"eq","value":true}],"next":"CHECK_STATE_OWNERSHIP_DO_NOT_DELETE_OR_COPY_TOKENS"},
+    {"id":"EXISTING_CLAUDE_STATE_UNKNOWN","severity":"REVIEW","when":[{"field":"existingClaudeStatePresent","op":"missing"}],"next":"DO_NOT_TREAT_UNKNOWN_AS_CLEAN"},
+    {"id":"LOW_MEMORY_HEADROOM","severity":"REVIEW","when":[{"field":"freeMemoryGB","op":"lt","value":1}],"next":"DEFER_HEAVY_DOWNLOADS_AND_EXTRA_APP_LAUNCHES"},
+    {"id":"LOW_DATA_VOLUME_SPACE","severity":"REVIEW","when":[{"field":"dataVolumeFreeGB","op":"lt","value":10}],"next":"REVIEW_STORAGE_BUDGET_NO_AUTOMATIC_CLEANUP"},
+    {"id":"COWORK_MODE_UNKNOWN","severity":"REVIEW","when":[{"field":"coworkMode","op":"eq","value":"Unknown"}],"next":"CONFIRM_CLOUD_OR_LOCAL_VM_ONLY_IF_COWORK_NEEDED"},
+    {"id":"CLOUD_TASK_EGRESS_OUTSIDE_LOCAL_CAGE_SCOPE","severity":"NOTICE","when":[{"field":"coworkMode","op":"eq","value":"Cloud"}],"next":"ASSESS_CLOUD_TASK_EGRESS_SEPARATELY_NO_LOCAL_VM_INSTALL"},
+    {"id":"LOCAL_COWORK_UNACCEPTED_IN_CURRENT_CAGE","severity":"PRODUCT_GAP","when":[{"field":"coworkMode","op":"eq","value":"LocalVM"},{"field":"target","op":"in","value":["DesktopPilot","FullDesktop"]}],"next":"PRODUCT_IDENTITY_HELPER_AND_VM_BOUNDARY_ACCEPTANCE_REQUIRED"}
+  ]
+}

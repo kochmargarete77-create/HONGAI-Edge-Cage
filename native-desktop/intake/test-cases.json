@@ -1,0 +1,21 @@
+{
+  "base":{"platform":"Windows","target":"NetworkAssessment","coworkMode":"NotRequired","hardwareArchitecture":"x64","windowsBuild":26100,"windowsProductType":1,"existingClaudeStatePresent":false,"freeMemoryGB":4,"dataVolumeFreeGB":30},
+  "cases":[
+    {"name":"ordinary_inventory_is_not_acceptance","set":{},"state":"UNVERIFIED_CANDIDATE","has":[],"lacks":["PRODUCT_FULL_DESKTOP_UNACCEPTED"]},
+    {"name":"full_edition_is_a_product_gap","set":{"target":"FullDesktop"},"state":"PRODUCT_REVIEW_REQUIRED","has":["PRODUCT_FULL_DESKTOP_UNACCEPTED"]},
+    {"name":"windows_arm_must_not_install_x64_kernel","set":{"hardwareArchitecture":"arm64","target":"DesktopPilot"},"state":"BLOCKED","has":["WINDOWS_ARM64_NOT_SUPPORTED_BY_CURRENT_CAGE"]},
+    {"name":"cloud_mode_does_not_force_virtual_machine","set":{"coworkMode":"Cloud"},"state":"UNVERIFIED_CANDIDATE","has":["CLOUD_TASK_EGRESS_OUTSIDE_LOCAL_CAGE_SCOPE"],"lacks":["LOCAL_COWORK_UNACCEPTED_IN_CURRENT_CAGE"]},
+    {"name":"local_cowork_product_gap","set":{"coworkMode":"LocalVM","target":"DesktopPilot"},"state":"PRODUCT_REVIEW_REQUIRED","has":["LOCAL_COWORK_UNACCEPTED_IN_CURRENT_CAGE"]},
+    {"name":"unknown_state_is_not_clean","set":{"existingClaudeStatePresent":null},"state":"REVIEW_REQUIRED","has":["EXISTING_CLAUDE_STATE_UNKNOWN"]},
+    {"name":"existing_state_is_not_automatically_deleted","set":{"existingClaudeStatePresent":true},"state":"UNVERIFIED_CANDIDATE","has":["EXISTING_CLAUDE_STATE_PRESERVE"]},
+    {"name":"string_is_not_boolean","set":{"existingClaudeStatePresent":"true"},"state":"UNVERIFIED_CANDIDATE","lacks":["EXISTING_CLAUDE_STATE_PRESERVE"]},
+    {"name":"numeric_string_does_not_become_low_memory","set":{"freeMemoryGB":"0.1"},"state":"UNVERIFIED_CANDIDATE","lacks":["LOW_MEMORY_HEADROOM"]},
+    {"name":"actual_low_memory_requires_review","set":{"freeMemoryGB":0.5},"state":"REVIEW_REQUIRED","has":["LOW_MEMORY_HEADROOM"]},
+    {"name":"multiple_tun_candidates_are_review_not_deletion","set":{"tunCandidateCount":2},"state":"REVIEW_REQUIRED","has":["MULTIPLE_TUN_CANDIDATES"]},
+    {"name":"os_missing_does_not_use_shim","set":{"windowsBuild":null},"state":"REVIEW_REQUIRED","has":["WINDOWS_BUILD_UNKNOWN"],"lacks":["WINDOWS_BUILD_BELOW_CURRENT_BASELINE"]},
+    {"name":"mac_arm_rosetta_native_selection","set":{"platform":"Mac","hardwareArchitecture":"arm64","macMajor":26,"rosettaTranslated":true,"target":"DesktopPilot"},"state":"REVIEW_REQUIRED","has":["ROSETTA_PROCESS_ON_APPLE_SILICON"],"lacks":["WINDOWS_ARM64_NOT_SUPPORTED_BY_CURRENT_CAGE"]},
+    {"name":"unknown_platform_never_passes","set":{"platform":"Other","hardwareArchitecture":null},"state":"REVIEW_REQUIRED","has":["PLATFORM_UNKNOWN","ARCHITECTURE_UNKNOWN"]},
+    {"name":"managed_policy_not_overridden","set":{"managedPolicyPresent":true},"state":"REVIEW_REQUIRED","has":["MANAGED_CLAUDE_POLICY_PRESENT"]},
+    {"name":"server_ci_is_not_client_hardware_evidence","set":{"windowsProductType":3},"state":"REVIEW_REQUIRED","has":["WINDOWS_SERVER_IS_NOT_CUSTOMER_CLIENT_ACCEPTANCE"]}
+  ]
+}

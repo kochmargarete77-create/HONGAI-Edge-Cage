@@ -1,0 +1,49 @@
+name: Read-only device intake and routing
+on:
+  push:
+    branches: [native-desktop-development]
+    paths: ['native-desktop/intake/**', '.github/workflows/device-intake.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [windows-2022, windows-2025]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Check fixtures and collector without accepting environment
+        shell: powershell
+        run: |
+          ./native-desktop/intake/Test-Routing.ps1
+          node ./native-desktop/intake/test-routing.js
+          $r=./native-desktop/intake/Check-Device-Windows.ps1 | ConvertFrom-Json
+          if($r.schema -cne 'hongai.device-intake.v1' -or $r.hostNetworkSettingsChanged -or $r.loginStateChanged -or $r.networkAccepted -or $r.fullDesktopAccepted -or $r.automaticApplyAllowed -or $r.networkRequestsMade){throw 'UNSAFE_COLLECTOR_RESULT'}
+          if($r.facts.platform -cne 'Windows' -or -not $r.facts.windowsBuild){throw 'MISSING_MACHINE_FACTS'}
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-15-intel, macos-26, macos-26-intel]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Check shared policy and native JXA collector
+        run: |
+          node native-desktop/intake/test-routing.js
+          bash -n native-desktop/intake/Check-Device-Mac.command
+          python3 - <<'PY'
+          import json, subprocess
+          for target, mode in [('NetworkAssessment','NotRequired'),('FullDesktop','Cloud'),('DesktopPilot','LocalVM')]:
+              r=json.loads(subprocess.check_output(['bash','native-desktop/intake/Check-Device-Mac.command',target,mode],text=True))
+              assert r['schema']=='hongai.device-intake.v1'
+              assert r['facts']['platform']=='Mac'
+              assert r['facts']['hardwareArchitecture'] in ('x64','arm64')
+              assert r['facts']['macMajor'] >= 15
+              assert not any(r[k] for k in ('hostNetworkSettingsChanged','loginStateChanged','networkAccepted','fullDesktopAccepted','automaticApplyAllowed','networkRequestsMade'))
+              if target=='FullDesktop': assert any(x['id']=='PRODUCT_FULL_DESKTOP_UNACCEPTED' for x in r['findings'])
+          print('PASS native Mac collection, mode routing and no false acceptance')
+          PY
