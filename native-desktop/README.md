@@ -1,4 +1,4 @@
-# HONG AI CAGE Desktop Native — pilot.3
+# HONG AI CAGE Desktop Native — pilot.4
 
 Native launchers for signature-verified official Claude Desktop files, with a session-owned loopback gateway and an inherited process boundary. This is separate from the WEB_ISOLATION wrapper.
 
@@ -13,6 +13,10 @@ Saved setup is now the normal launch path: importing the Clash handoff and choos
 macOS build 8 also fixes the Foundation Process group-leader/setsid mismatch missed by earlier direct-CLI tests. The helper verifies its own session and process-group ownership before exec. Installed-app daily launch is now tested in addition to CLI smoke tests.
 
 ## Evidence
+
+pilot.4 adds a bundled Windows compatibility preflight, official Stable MSIX bootstrap, per-user Mac official installation/update, signature-verified private Mac snapshots, bounded Windows version rotation and atomic installer receipt commits. Settings remain a first-use step; daily launch reuses enrollment and the workspace. Runtime policy belongs to the session, not to a particular official version path or finite domain list.
+
+Current build source: 5552579c7d5cffddca6a67f5c0744fa8a811722c. Windows installer and missing-official-app bootstrap passed on two CI hosts: https://github.com/kochmargarete77-create/HONGAI-Edge-Cage/actions/runs/45941872330 . Mac Universal build 9, real official download/install, installed-app startup and saved-setup reuse passed on macOS 15/26 for Apple Silicon and Intel: https://github.com/kochmargarete77-create/HONGAI-Edge-Cage/actions/runs/45941872352 . The historical pilot.3 results below remain context; current machine-readable scope is in evidence/pilot4-installer-validation.json and docs/兼容安装与版本更新规范.txt.
 
 Windows runtime and test source: 9adb63955a4bc9eed24f41615472ab251fc4536e.
 Actual registered MSIX, existing/fresh core, cold start, saved-setup automatic launch, storage checks and recoverable uninstall: Windows Server 2022/2025, https://github.com/kochmargarete77-create/HONGAI-Edge-Cage/actions/runs/45935635169

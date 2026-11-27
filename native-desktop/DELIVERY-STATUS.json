@@ -2,7 +2,7 @@
   "schema": "hongai.native-delivery-status.v3",
   "dateLocal": "2026-11-26",
   "product": "HONG AI CAGE Desktop Native",
-  "version": "0.3.0-pilot.3",
+  "version": "0.3.0-pilot.4",
   "installablePilot": true,
   "customerReady": false,
   "withdrawnVersion": "0.3.0-pilot.2",
@@ -24,9 +24,9 @@
     }
   ],
   "windows": {
-    "version": "0.3.0-pilot.3",
-    "sourceCommit": "9adb63955a4bc9eed24f41615472ab251fc4536e",
-    "ciRun": 45935635169,
+    "version": "0.3.0-pilot.4",
+    "sourceCommit": "5552579c7d5cffddca6a67f5c0744fa8a811722c",
+    "ciRun": 45941872330,
     "systems": [
       "Windows Server 2022",
       "Windows Server 2025"
@@ -40,14 +40,14 @@
     "dailyAutomaticLaunch": "PASS",
     "liveStorageCheck": "PASS",
     "recoverableUninstall": "PASS",
-    "localInstalledSourceCopyAndTamperTest": "PASS_6.28899.2",
+    "localInstalledSourceCopyAndTamperTest": "HISTORICAL_PILOT3_PASS_6.28899.2; current registered MSIX 6.28899.6 verified in CI",
     "setupOrganizationalSignature": false,
     "realCustomerRetest": "PENDING"
   },
   "macos": {
-    "version": "0.3.0 build 8",
-    "sourceCommit": "bed61340fc5c1b6d5a710ade4cec2058df26918c",
-    "ciRun": 45934735499,
+    "version": "0.3.0 build 9",
+    "sourceCommit": "5552579c7d5cffddca6a67f5c0744fa8a811722c",
+    "ciRun": 45941872352,
     "systems": [
       "macOS 15 arm64",
       "macOS 15 Intel",
@@ -66,20 +66,20 @@
   },
   "packages": {
     "Windows": {
-      "filename": "HONGAI-CAGE-Desktop-0.3.0-pilot.3-Windows-x64-Setup.exe",
-      "bytes": 3203072,
-      "sha256": "3247CCF01AED9F8BB7A35F8363629FB54EB489F274730BD18C92AF955E004DF2"
+      "filename": "HONGAI-CAGE-Desktop-0.3.0-pilot.4-Windows-x64-Setup.exe",
+      "bytes": 3215872,
+      "sha256": "D246F490C2DDA51B38BCFB87D803E23EFFB8A21AC4C69BBFA52757521B38A166"
     },
     "Mac": {
-      "filename": "HONGAI-CAGE-Desktop-0.3.0-build8-macOS-Universal.pkg",
-      "bytes": 228533,
-      "sha256": "4d4896bd1ff914cce25520f2cedab82bb99f886ba6e65a2050bf1edf4b19f2f3"
+      "filename": "HONGAI-CAGE-Desktop-0.3.0-build9-macOS-Universal.pkg",
+      "bytes": 285351,
+      "sha256": "fb4b2f48c2f8e319273fed2f97837d1c0cc4ba4b4ecdcfcbeb6ac737d2de34de"
     }
   },
   "assessment": {
-    "version": "2026.11.26-r9-cage-interop",
+    "version": "2026.11.26-r10-install-compat",
     "scoringWeightsChanged": false,
-    "changes": "Integration wording and declaration of test boundaries only"
+    "changes": "Installation compatibility, permissions and official update handoff; scoring weights and gates retained"
   },
   "unaccepted": [
     "Real login, OAuth/protocol callbacks and normal conversations",
@@ -87,5 +87,12 @@
     "Cowork, package-dependent capabilities and system delegation",
     "Physical customer hardware and long-running real business use"
   ],
-  "hostNetworkSettingsChangedLocally": false
+  "hostNetworkSettingsChangedLocally": false,
+  "updateLifecycle": {
+    "windowsRotation": "FOUR_SYNTHETIC_VERSIONS_PASS",
+    "macPrivateSnapshots": "PASS_ALL_FOUR",
+    "officialBootstrap": "PASS_BOTH_PLATFORMS",
+    "hostNetworkSettingsChanged": false,
+    "officialRuntimeFilesModified": false
+  }
 }
