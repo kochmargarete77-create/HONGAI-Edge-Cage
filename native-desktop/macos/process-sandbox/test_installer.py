@@ -71,7 +71,7 @@ def main():
         official_added=True
         with tempfile.TemporaryDirectory(prefix='hongai-daily-launch-') as project,socket.socket() as endpoint:
             endpoint.bind(('127.0.0.1',0))
-            own_data.mkdir(parents=True,mode=0o700)
+            own_data.mkdir(parents=True,mode=0o700,exist_ok=True)
             (own_data / 'enrolled-handoff.json').write_text(json.dumps({'version':1,'tool':'clash','loopback':{'protocol':'http','host':'127.0.0.1','mixedPort':endpoint.getsockname()[1]},'expectedEgressIp':'8.8.8.8','routeId':'0123456789abcdef01234567','generatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00','Z')}))
             (own_data / 'workspace.json').write_text(json.dumps({'workspace':project}))
             daily=run([str(executable),'--daily-launch-smoke-test'])

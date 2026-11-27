@@ -10,7 +10,7 @@ function Write-HongAiSessionStatus {
     param([Parameter(Mandatory)][string]$DataRoot,[Parameter(Mandatory)]$Status)
     $path=Join-Path $DataRoot 'session-status.json';$pending=$path+'.'+[guid]::NewGuid().ToString('N')+'.tmp'
     [IO.File]::WriteAllText($pending,($Status|ConvertTo-Json -Depth 7),[Text.UTF8Encoding]::new($false))
-    if(Test-Path -LiteralPath $path){[IO.File]::Replace($pending,$path,$null)}else{[IO.File]::Move($pending,$path)}
+    if(Test-Path -LiteralPath $path){[IO.File]::Replace($pending,$path,$path+'.previous')}else{[IO.File]::Move($pending,$path)}
 }
 function Get-HongAiEnvironmentIdentity {
     param([Parameter(Mandatory)][string]$DataRoot,[Parameter(Mandatory)][string]$OwnerSid)

@@ -5,6 +5,7 @@ Import-Module (Join-Path $PSScriptRoot 'Session-Safety.psm1') -Force
 $receipt=@{schema='hongai.cage.installation.v1';dataRoot=$root;ownerSid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value}
 [IO.File]::WriteAllText((Join-Path $root 'installation.json'),($receipt|ConvertTo-Json),[Text.UTF8Encoding]::new($false))
 Write-HongAiSessionStatus -DataRoot $root -Status @{phase='RUNNING';sessionId='owned-test-only'}
+Write-HongAiSessionStatus -DataRoot $root -Status @{phase='RUNNING';sessionId='owned-test-only';atomicReplacementVerified=$true}
 $before=(Get-FileHash (Join-Path $root 'session-status.json')).Hash
 $lock=Enter-HongAiSessionOwner -DataRoot $root
 try{

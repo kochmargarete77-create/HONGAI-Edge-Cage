@@ -28,10 +28,10 @@ try{
     if($link.Arguments -ne '' -or $link.TargetPath -ine (Join-Path $target 'HONGAI-CAGE.exe') -or $link.IconLocation -ine ((Join-Path $target 'resources\Claude.ico')+',0')){throw 'OFFICIAL_ICON_OR_SHORTCUT_REPAIR_FAILED'}
     Write-Host 'PASS official icon shortcut repair clears stale arguments without changing protected launcher'
     $sessionArguments='-NoLogo -NoProfile -ExecutionPolicy Bypass -File "'+(Join-Path $target 'Run-Session.ps1')+'" -DataRoot "'+$data+'" -Workspace "'+$workspace+'" -HandoffPath "'+$handoff+'" -StopFile "'+$stop+'" -MaximumSessionSeconds 45 -OfflineAcceptance'
-    $session=Start-Process -FilePath "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" -ArgumentList $sessionArguments -PassThru -WindowStyle Hidden
+    $session=Start-Process -FilePath "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" -ArgumentList $sessionArguments -PassThru -WindowStyle Hidden -RedirectStandardOutput (Join-Path $output ($prefix+'session-stdout.txt')) -RedirectStandardError (Join-Path $output ($prefix+'session-stderr.txt'))
     if(-not $session.WaitForExit(180000)){$session.Kill();throw 'INSTALLED_SESSION_LIFECYCLE_TIMEOUT'}
     $state=Get-Content -LiteralPath (Join-Path $data 'session-status.json') -Raw -Encoding UTF8|ConvertFrom-Json
-    if($state.phase -ne 'STOPPED' -or -not $state.officialDesktopStarted -or $state.storageBudgetChecks -lt 1 -or $state.officialSourceKind -cne 'MSIX_PRIVATE_SIGNED_COPY' -or $state.officialFilesVerified -lt 5){$state|ConvertTo-Json -Depth 6|Write-Host;throw 'INTEGRATED_OFFICIAL_SESSION_NOT_ACCEPTED'}
+    if($state.phase -ne 'STOPPED' -or -not $state.officialDesktopStarted -or $state.storageBudgetChecks -lt 1 -or $state.officialSourceKind -cne 'MSIX_PRIVATE_SIGNED_COPY' -or $state.officialFilesVerified -lt 5){$state|ConvertTo-Json -Depth 6|Write-Host;Get-Content -LiteralPath (Join-Path $output ($prefix+'session-stderr.txt')) -ErrorAction SilentlyContinue|Write-Host;throw 'INTEGRATED_OFFICIAL_SESSION_NOT_ACCEPTED'}
     $test.session=$true
     $gui=Start-Process -FilePath (Join-Path $target 'HONGAI-CAGE.exe') -ArgumentList '--ui-smoke-test' -PassThru
     if(-not $gui.WaitForExit(15000) -or $gui.ExitCode -ne 0){throw 'INTEGRATED_NATIVE_UI_FAILED'}
