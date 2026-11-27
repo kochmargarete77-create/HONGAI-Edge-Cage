@@ -21,6 +21,7 @@ jobs:
         run: |
           ./native-desktop/windows/sandboxie/Test-RuntimeLifecycle.ps1 -TemporaryRoot $env:RUNNER_TEMP
           ./native-desktop/windows/sandboxie/Test-SessionSafety.ps1 -TemporaryRoot $env:RUNNER_TEMP
+          ./native-desktop/windows/sandboxie/Test-ProbeProviders.ps1
           ./native-desktop/windows/sandboxie/Test-Foundation.ps1
       - uses: actions/upload-artifact@v4
         if: always()

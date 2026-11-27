@@ -1,0 +1,33 @@
+'use strict';
+const fs=require('fs'),path=require('path'),crypto=require('crypto'),assert=require('assert'),{CapabilityVault,createMcpHandler}=require('./capability-vault');
+const parent=process.env.HONGAI_TEST_ROOT;if(!parent||!fs.existsSync(parent))throw Error('SET_APPROVED_TEST_ROOT');
+const root=fs.mkdtempSync(path.join(parent,'object-preview-')),file=path.join(root,'approved.txt'),other=path.join(root,'ungranted.txt');
+fs.writeFileSync(file,'Approved work\nPRIVATE_HOST_CANARY 10.11.12.13\n');fs.writeFileSync(other,'NEVER_GRANTED');
+let checks=0;const ok=(test,label)=>{assert(test,label);checks++;};
+const v=new CapabilityVault({environmentId:'env-fixture',sensitiveTokens:['PRIVATE_HOST_CANARY','10.11.12.13']});
+try{
+ const grant=v.grant(file,{label:'Project note',allowEditProposal:true}),read=v.call('read_object',{objectId:grant.objectId});
+ ok(read.text.includes('Approved work'),'granted content remains usable');
+ ok(!JSON.stringify(read).includes(root)&&!JSON.stringify(read).includes('PRIVATE_HOST_CANARY')&&!JSON.stringify(read).includes('10.11.12.13'),'no path or configured environment literal exported');
+ assert.throws(()=>v.call('list_directory',{}),/TOOL_NOT_AVAILABLE/);checks++;
+ assert.throws(()=>v.call('read_object',{objectId:other}),/OBJECT_NOT_GRANTED/);checks++;
+ assert.throws(()=>v.call('read_object',{objectId:grant.objectId,path:'..'}),/UNEXPECTED_ARGUMENT/);checks++;
+ assert.throws(()=>v.grant(root),/UNSUPPORTED_OBJECT/);checks++;
+ const ro=v.grant(other);assert.throws(()=>v.call('propose_edit',{objectId:ro.objectId,expectedEtag:'',text:'overwrite'}),/EDIT_NOT_GRANTED/);checks++;
+ assert.throws(()=>v.call('propose_edit',{objectId:grant.objectId,expectedEtag:'wrong',text:'change'}),/OBJECT_VERSION_CHANGED/);checks++;
+ const edit=v.call('propose_edit',{objectId:grant.objectId,expectedEtag:read.etag,text:'Proposed change'});
+ ok(edit.fileWritten===false&&fs.readFileSync(file,'utf8').startsWith('Approved'),'model cannot commit files on its own');
+ ok(v.takeProposal(edit.proposalId).text==='Proposed change','host can review a bounded proposal');
+ const key=crypto.randomBytes(32),sealed=v.seal(key);
+ ok(!JSON.stringify(sealed).includes(root)&&!JSON.stringify(sealed).includes('approved.txt'),'at-rest grant map has no plaintext path');
+ ok(CapabilityVault.inspectSealed(sealed,key,'env-fixture').length===2,'host decrypts authenticated grant map');
+ assert.throws(()=>CapabilityVault.inspectSealed(sealed,key,'other-env'),/SEALED_GRANTS_REJECTED/);checks++;
+ const damaged={...sealed,tag:crypto.randomBytes(16).toString('base64')};assert.throws(()=>CapabilityVault.inspectSealed(damaged,key,'env-fixture'),/SEALED_GRANTS_REJECTED/);checks++;
+ const handler=createMcpHandler(v);ok(handler({jsonrpc:'2.0',id:1,method:'tools/list'}).error!==undefined,'initialization required');
+ handler({jsonrpc:'2.0',id:2,method:'initialize'});ok(handler({jsonrpc:'2.0',method:'notifications/initialized'})===null,'notification has no response');
+ ok(handler({jsonrpc:'2.0',id:3,method:'tools/list'}).result.tools.length===2,'no shell, grants, decrypt or enumeration tools exposed');
+ const failure=JSON.stringify(handler({jsonrpc:'2.0',id:4,method:'tools/call',params:{name:'read_object',arguments:{objectId:other}}}));ok(!failure.includes(root)&&!failure.includes('NEVER_GRANTED'),'errors disclose no denied path or data');
+ v.revoke(grant.objectId);assert.throws(()=>v.call('read_object',{objectId:grant.objectId}),/OBJECT_NOT_GRANTED/);checks++;
+ const otherEnvironment=new CapabilityVault({environmentId:'other-env'});assert.throws(()=>otherEnvironment.call('read_object',{objectId:ro.objectId}),/OBJECT_NOT_GRANTED/);otherEnvironment.close();checks++;
+ console.log('PASS '+checks+' scoped-object, encrypted-map and MCP interface checks; prototype only, not a desktop integration acceptance');
+}finally{v.close();fs.unlinkSync(file);fs.unlinkSync(other);fs.rmdirSync(root);}

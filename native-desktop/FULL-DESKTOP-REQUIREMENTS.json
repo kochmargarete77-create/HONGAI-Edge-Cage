@@ -1,7 +1,7 @@
 {
   "schema": "hongai.full-desktop-requirements.v1",
   "product": "HONG AI CAGE Desktop",
-  "currentBuild": "0.3.0-pilot.4 / macOS build 9",
+  "currentBuild": "0.3.0-pilot.5 / macOS build 10",
   "fullDesktopAccepted": false,
   "coworkSupportRequiredInFullEdition": true,
   "coworkDeliveryPlan": "cowork/COWORK-DELIVERY-PLAN.json",
@@ -21,13 +21,18 @@
     {"id":"F11","name":"Organizational publisher signature and platform trust acceptance","windows":"ORGANIZATIONAL_SIGNATURE_MISSING","macos":"AD_HOC_ONLY_NOT_NOTARIZED"},
     {"id":"F12","name":"Installation, exit and recovery without host network changes","windows":"CI_PASS","macos":"CI_PASS"},
     {"id":"F13","name":"Resource limits and ordinary customer-machine compatibility","windows":"SOFT_BUDGET_ONLY_WINDOWS_CLIENT_VALIDATION_PENDING","macos":"SOFT_BUDGET_ONLY_CUSTOMER_MACHINE_VALIDATION_PENDING"},
-    {"id":"F14","name":"Runtime evidence of isolated authentication, configuration and extension storage paths","windows":"VIRTUALIZATION_BOUNDARY_TESTED_APP_STATE_AUDIT_PENDING","macos":"RESTRICTED_PATHS_TESTED_APP_STATE_AUDIT_PENDING"}
+    {"id":"F14","name":"Runtime evidence of isolated authentication, configuration and extension storage paths","windows":"VIRTUALIZATION_BOUNDARY_TESTED_APP_STATE_AUDIT_PENDING","macos":"RESTRICTED_PATHS_TESTED_APP_STATE_AUDIT_PENDING"},
+    {"id":"F15","name":"Authenticated session continuity after network pause, restart, download and signed update","windows":"CUSTOMER_DROPOUT_REPORTED_ROOT_CAUSE_UNCONFIRMED_NOT_ACCEPTED","macos":"NOT_ACCEPTED"},
+    {"id":"F16","name":"Object-scoped MCP and runtime metadata exposure boundary","windows":"RESEARCH_CORE_ONLY_NOT_INTEGRATED","macos":"RESEARCH_CORE_ONLY_NOT_INTEGRATED"}
   ],
   "releaseRules": [
     "Do not relabel a pilot as FULL_DESKTOP by changing filenames or copy.",
     "Passing installer and unauthenticated UI tests does not accept authenticated functionality.",
     "Do not enable privileged system delegation just to pass a usability test before its network boundary is implemented.",
     "Do not remove first-stage assessment tooling when replacing a second-stage product.",
-    "Preserve the latest tested packages and recovery copies while developing the full-desktop implementation."
+    "Preserve the latest tested packages and recovery copies while developing the full-desktop implementation.",
+    "Never clear the authorized current customer session to pass a history-cleanliness check or repair transient network errors.",
+    "A stable CAGE environment identifier is not a virtual hardware identifier and must not be advertised as one.",
+    "No Linux guest or automatic local VM enablement is introduced by this product."
   ]
 }

@@ -142,33 +142,37 @@ function Test-HongAiLoopbackListener {
     finally { $client.Dispose() }
 }
 
+function Invoke-HongAiExitProbe {
+    param([string]$ProxyUri,[string]$ProbeUri,[int]$TimeoutSeconds)
+    $handler=[System.Net.Http.HttpClientHandler]::new();$client=$null
+    try{
+        $handler.UseProxy=$true;$handler.Proxy=[System.Net.WebProxy]::new($ProxyUri,$true);$handler.AllowAutoRedirect=$false
+        $client=[System.Net.Http.HttpClient]::new($handler,$true);$client.Timeout=[timespan]::FromSeconds($TimeoutSeconds);$client.MaxResponseContentBufferSize=65536
+        $client.DefaultRequestHeaders.UserAgent.ParseAdd('HONGAI-CAGE-Health/0.3')
+        return $client.GetStringAsync($ProbeUri).GetAwaiter().GetResult()
+    }finally{if($client){$client.Dispose()}else{$handler.Dispose()}}
+}
 function Get-HongAiObservedExit {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$ProxyUri,
         [int]$TimeoutSeconds = 8,
-        [string]$ProbeUri = 'https://api.ipify.org/?format=json'
+        [string]$ProbeUri
     )
 
     if ($ProxyUri -cnotmatch '^http://127\.0\.0\.1:([0-9]{4,5})$') { throw 'PROBE_PROXY_NOT_LOOPBACK_HTTP' }
-    $handler = [System.Net.Http.HttpClientHandler]::new()
-    $client = $null
-    try {
-        $handler.UseProxy = $true
-        $handler.Proxy = [System.Net.WebProxy]::new($ProxyUri, $true)
-        $client = [System.Net.Http.HttpClient]::new($handler, $true)
-        $client.Timeout = [timespan]::FromSeconds($TimeoutSeconds)
-        $client.DefaultRequestHeaders.UserAgent.ParseAdd('HONGAI-Desktop-Guard-Pilot/0.1')
-        $raw = $client.GetStringAsync($ProbeUri).GetAwaiter().GetResult()
-        $parsed = $raw | ConvertFrom-Json -ErrorAction Stop
-        $ip = [string]$parsed.ip
-        if (-not (Test-HongAiPublicIpv4 -Address $ip)) { throw 'PROBE_EGRESS_IP_INVALID' }
-        return $ip
-    } catch {
-        throw 'PROBE_FAILED'
-    } finally {
-        if ($null -ne $client) { $client.Dispose() }
+    $targets=if($ProbeUri){@($ProbeUri)}else{@('https://api.ipify.org/?format=json','https://www.cloudflare.com/cdn-cgi/trace')}
+    $budget=[math]::Max(1,[math]::Floor($TimeoutSeconds/$targets.Count))
+    foreach($target in $targets){
+        try{
+            $raw=Invoke-HongAiExitProbe -ProxyUri $ProxyUri -ProbeUri $target -TimeoutSeconds $budget
+            $ip=$null
+            if($target -like '*cloudflare.com/cdn-cgi/trace'){$match=[regex]::Match($raw,'(?m)^ip=([^\r\n]+)');if($match.Success){$ip=$match.Groups[1].Value}}
+            else{$parsed=$raw|ConvertFrom-Json -ErrorAction Stop;$ip=[string]$parsed.ip}
+            if(Test-HongAiPublicIpv4 -Address $ip){return $ip}
+        }catch{continue}
     }
+    throw 'PROBE_FAILED'
 }
 
 function Test-HongAiClashRoute {

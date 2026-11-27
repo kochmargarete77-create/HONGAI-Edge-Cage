@@ -1,0 +1,15 @@
+{
+  "schema":"hongai.environment-constraints.v1",
+  "allowedHostPlatforms":["Windows","macOS"],
+  "linuxGuestInstalledByCage":false,
+  "automaticLocalVmEnablement":false,
+  "currentIsolationKind":"NATIVE_PROCESS_AND_FILE_NETWORK_BOUNDARY",
+  "hardwareVirtualMachine":false,
+  "hardwareIdentifiersSpoofed":false,
+  "stableEnvironmentId":"GENERATE_ONCE_PER_CUSTOMER_ENVIRONMENT_AND_PRESERVE",
+  "currentAuthorizedLoginState":"PRESERVE_NO_AUTOMATIC_RESET",
+  "networkFailure":"CLOSE_SESSION_GATEWAY_KEEP_APP_AND_STATE_REVERIFY_ORIGINAL_ROUTE",
+  "mcpObjectPrivacy":"RESEARCH_PREVIEW_NOT_NATIVE_INTEGRATION_ACCEPTED",
+  "allOperatingSystemMetadataHidden":false,
+  "accountBanPreventionGuaranteed":false
+}

@@ -287,8 +287,18 @@ enum CageRuntime {
     }
     static func verifyExit(_ h: Handoff) throws {
         if CommandLine.arguments.contains("--daily-launch-smoke-test"),ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] == "true",ProcessInfo.processInfo.environment["RUNNER_OS"] == "macOS" {return}
-        let observed = try command("/usr/bin/curl", ["--silent", "--show-error", "--fail", "--max-time", "8", "--noproxy", "", "--proxy", h.proxy, "--proto", "=https", "https://api.ipify.org"])
-        guard observed == h.expectedEgressIp else { throw CageFailure("最终出口不一致，已阻止启动。") }
+        for target in ["https://api.ipify.org","https://www.cloudflare.com/cdn-cgi/trace"] {
+            let observed:String
+            do {
+                let response=try command("/usr/bin/curl",["--silent","--show-error","--fail","--max-time","4","--max-filesize","65536","--noproxy","","--proxy",h.proxy,"--proto","=https",target],timeout:5)
+                observed=target.contains("cloudflare.com") ? response.components(separatedBy:"\n").first(where:{$0.hasPrefix("ip=")}).map{String($0.dropFirst(3)).trimmingCharacters(in:.whitespacesAndNewlines)} ?? "" : response
+            }catch{continue}
+            let octets=observed.split(separator:".",omittingEmptySubsequences:false).compactMap{UInt8($0)}
+            guard octets.count == 4,ProxyDestinationPolicy.publicIPv4(octets) else {continue}
+            guard observed == h.expectedEgressIp else {throw CageFailure("最终出口不一致，已阻止启动。")}
+            return
+        }
+        throw CageFailure("出口核验服务暂不可用，保持网络暂停并保留当前程序。")
     }
     static func officialApp() throws -> URL {
         let paths = [URL(fileURLWithPath:"/Applications/Claude.app"), FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications/Claude.app")]
