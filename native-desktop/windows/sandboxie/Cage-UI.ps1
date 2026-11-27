@@ -72,4 +72,4 @@ if(-not $Settings -and -not $UISmokeTest -and $script:chosenWorkspace -and (Test
     $form.Add_Shown({$form.Hide();Start-OwnSession})
 }
 if($UISmokeTest){$smoke=[Windows.Forms.Timer]::new();$smoke.Interval=1500;$smoke.Add_Tick({$smoke.Stop();$form.Close()});$smoke.Start()}
-$null=$form.ShowDialog()
+[Windows.Forms.Application]::Run($form)
