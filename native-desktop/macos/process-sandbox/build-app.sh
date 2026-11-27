@@ -6,8 +6,9 @@ mkdir -p "$destination"
 destination="$(cd "$destination" && pwd)"
 app="$destination/HONG AI CAGE Desktop.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$app/Contents/Helpers"
+cp HongAICage.swift "$destination/main.swift"
 for architecture in arm64 x86_64; do
-  xcrun swiftc -O -target "$architecture-apple-macos13.0" -framework AppKit -framework Network HongAICage.swift -o "$destination/cage-$architecture"
+  xcrun swiftc -O -target "$architecture-apple-macos13.0" -framework AppKit -framework Network "$destination/main.swift" OfficialRuntime.swift -o "$destination/cage-$architecture"
   xcrun clang -O2 -target "$architecture-apple-macos13.0" session.c -o "$destination/session-$architecture"
 done
 xcrun lipo -create "$destination/cage-arm64" "$destination/cage-x86_64" -output "$app/Contents/MacOS/HongAICage"
@@ -21,7 +22,7 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 <key>CFBundleExecutable</key><string>HongAICage</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>0.3.0</string>
-<key>CFBundleVersion</key><string>8</string>
+<key>CFBundleVersion</key><string>9</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>

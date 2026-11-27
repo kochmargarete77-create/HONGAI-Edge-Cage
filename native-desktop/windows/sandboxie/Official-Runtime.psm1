@@ -28,6 +28,56 @@ function Get-HongAiRuntimeFiles([string]$Root){
     }
 }
 
+function Assert-HongAiCachedRuntime([string]$Target,[string]$PackageFullName){
+    if((Get-Item -LiteralPath $Target -Force).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'OFFICIAL_RUNTIME_CACHE_LINK_REJECTED'}
+    $manifest=Get-Content -LiteralPath (Join-Path $Target 'runtime-manifest.json') -Raw -Encoding UTF8|ConvertFrom-Json
+    if($manifest.schema -cne 'hongai.official-runtime.v1' -or $manifest.packageFullName -cne $PackageFullName){throw 'OFFICIAL_RUNTIME_CACHE_IDENTITY_MISMATCH'}
+    $actual=@(Get-HongAiRuntimeFiles (Join-Path $Target 'app'))
+    if($actual.Count -ne @($manifest.files).Count){throw 'OFFICIAL_RUNTIME_CACHE_FILE_SET_CHANGED'}
+    $seen=@{}
+    foreach($entry in $manifest.files){
+        $file=[IO.Path]::GetFullPath((Join-Path $Target ([string]$entry.path)))
+        if(-not $file.StartsWith((Join-Path $Target 'app')+'\',[StringComparison]::OrdinalIgnoreCase) -or $seen.ContainsKey($file)){throw 'OFFICIAL_RUNTIME_MANIFEST_PATH_INVALID'}
+        $seen[$file]=$true
+        if((Get-HongAiRuntimeHash $file) -cne $entry.sha256){throw 'OFFICIAL_RUNTIME_CACHE_HASH_CHANGED'}
+    }
+    Assert-HongAiRuntimeSignature (Join-Path $Target 'app\Claude.exe')
+    return $actual.Count
+}
+
+function Save-HongAiRuntimeState([string]$Cache,[string]$PackageFullName){
+    $path=Join-Path $Cache 'runtime-state.json';$previous=$null
+    if(Test-Path -LiteralPath $path){
+        $old=Get-Content -LiteralPath $path -Raw -Encoding UTF8|ConvertFrom-Json
+        if($old.schema -cne 'hongai.runtime-state.v1'){throw 'OFFICIAL_RUNTIME_STATE_INVALID'}
+        $previous=if($old.current -cne $PackageFullName){$old.current}else{$old.previous}
+    }
+    if($previous -and $previous -notmatch '^Claude_[0-9.]+_x64__pzs8sxrjxfjjc$'){throw 'OFFICIAL_RUNTIME_STATE_INVALID'}
+    $state=[ordered]@{schema='hongai.runtime-state.v1';current=$PackageFullName;previous=$previous;policyRevision='private-gateway-v1';updatedUtc=[datetime]::UtcNow.ToString('o');automaticUnprotectedFallback=$false}
+    $temporary=$path+'.'+[guid]::NewGuid().ToString('N')+'.tmp'
+    [IO.File]::WriteAllText($temporary,($state|ConvertTo-Json),[Text.UTF8Encoding]::new($false))
+    if(Test-Path -LiteralPath $path){[IO.File]::Replace($temporary,$path,$path+'.previous')}else{[IO.File]::Move($temporary,$path)}
+}
+
+function Remove-HongAiObsoleteRuntimes([string]$Cache,[string]$Keep){
+    # Only complete, hash-verified, signed copies created by this product are
+    # eligible. Never touch WindowsApps, the profile, workspaces or Recovery.
+    $versions=@(Get-ChildItem -LiteralPath $Cache -Directory|Where-Object {$_.Name -match '^Claude_[0-9.]+_x64__pzs8sxrjxfjjc$'}|Sort-Object LastWriteTimeUtc -Descending)
+    $retained=@($Keep)
+    $statePath=Join-Path $Cache 'runtime-state.json'
+    if(Test-Path -LiteralPath $statePath){$state=Get-Content -LiteralPath $statePath -Raw -Encoding UTF8|ConvertFrom-Json;if($state.schema -cne 'hongai.runtime-state.v1'){throw 'OFFICIAL_RUNTIME_STATE_INVALID'};if($state.current -cne $Keep){$retained+=$state.current}else{$retained+=$state.previous}}
+    if($retained.Count -lt 2){$retained+=@($versions|Where-Object Name -CNE $Keep|Select-Object -First 1|ForEach-Object Name)}
+    foreach($version in $versions){
+        if($version.Name -in $retained){continue}
+        $resolved=[IO.Path]::GetFullPath($version.FullName)
+        if([IO.Path]::GetDirectoryName($resolved) -cne $Cache -or $resolved -cne $version.FullName){throw 'OFFICIAL_RUNTIME_CLEANUP_SCOPE_REJECTED'}
+        $null=Assert-HongAiCachedRuntime $resolved $version.Name
+        $running=@(Get-Process -ErrorAction SilentlyContinue|Where-Object {try{$_.Path -and $_.Path.StartsWith($resolved+'\',[StringComparison]::OrdinalIgnoreCase)}catch{$false}})
+        if($running.Count){throw 'PREVIOUS_OFFICIAL_RUNTIME_STILL_RUNNING'}
+        Remove-Item -LiteralPath $resolved -Recurse -Force
+    }
+}
+
 function Get-HongAiPrivateOfficialRuntime {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$DataRoot)
@@ -42,28 +92,16 @@ function Get-HongAiPrivateOfficialRuntime {
     Assert-HongAiRuntimeSignature (Join-Path $source 'Claude.exe')
     $cache=Join-Path $DataRoot 'OfficialRuntime'
     $target=Join-Path $cache $package.PackageFullName
-    $manifestPath=Join-Path $target 'runtime-manifest.json'
     $executable=Join-Path $target 'app\Claude.exe'
     $null=New-Item -ItemType Directory -Path $cache -Force
     if((Get-Item -LiteralPath $cache -Force).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'OFFICIAL_RUNTIME_CACHE_LINK_REJECTED'}
     if(Test-Path -LiteralPath $target){
-        if((Get-Item -LiteralPath $target -Force).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'OFFICIAL_RUNTIME_CACHE_LINK_REJECTED'}
-        $manifest=Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8|ConvertFrom-Json
-        if($manifest.schema -cne 'hongai.official-runtime.v1' -or $manifest.packageFullName -cne $package.PackageFullName){throw 'OFFICIAL_RUNTIME_CACHE_IDENTITY_MISMATCH'}
-        $actual=@(Get-HongAiRuntimeFiles (Join-Path $target 'app'))
-        if($actual.Count -ne @($manifest.files).Count){throw 'OFFICIAL_RUNTIME_CACHE_FILE_SET_CHANGED'}
-        $seen=@{}
-        foreach($entry in $manifest.files){
-            $file=[IO.Path]::GetFullPath((Join-Path $target ([string]$entry.path)))
-            if(-not $file.StartsWith((Join-Path $target 'app')+'\',[StringComparison]::OrdinalIgnoreCase) -or $seen.ContainsKey($file)){throw 'OFFICIAL_RUNTIME_MANIFEST_PATH_INVALID'}
-            $seen[$file]=$true
-            if((Get-HongAiRuntimeHash $file) -cne $entry.sha256){throw 'OFFICIAL_RUNTIME_CACHE_HASH_CHANGED'}
-        }
-        Assert-HongAiRuntimeSignature $executable
-        return [pscustomobject]@{Executable=$executable;SourceKind='MSIX_PRIVATE_SIGNED_COPY';PackageFullName=$package.PackageFullName;SourceRoot=$source;CacheReused=$true;FilesVerified=$actual.Count}
+        $count=Assert-HongAiCachedRuntime $target $package.PackageFullName
+        Remove-HongAiObsoleteRuntimes $cache $package.PackageFullName
+        Save-HongAiRuntimeState $cache $package.PackageFullName
+        return [pscustomobject]@{Executable=$executable;SourceKind='MSIX_PRIVATE_SIGNED_COPY';PackageFullName=$package.PackageFullName;SourceRoot=$source;CacheReused=$true;FilesVerified=$count}
     }
-    $versions=@(Get-ChildItem -LiteralPath $cache -Directory)
-    if($versions.Count -ge 2){throw 'OFFICIAL_RUNTIME_CACHE_MAINTENANCE_REQUIRED'}
+    Remove-HongAiObsoleteRuntimes $cache $package.PackageFullName
     $files=@(Get-HongAiRuntimeFiles $source)
     $required=($files|Measure-Object -Property Length -Sum).Sum
     if(([IO.DriveInfo]::new([IO.Path]::GetPathRoot($DataRoot))).AvailableFreeSpace -lt ($required+1GB)){throw 'INSUFFICIENT_SPACE_FOR_PRIVATE_OFFICIAL_RUNTIME'}
@@ -96,6 +134,7 @@ function Get-HongAiPrivateOfficialRuntime {
         # or change WindowsApps ownership/ACL to make a launch succeed.
         throw ('OFFICIAL_RUNTIME_PREPARATION_FAILED: '+$_.Exception.Message)
     }
+    Save-HongAiRuntimeState $cache $package.PackageFullName
     [pscustomobject]@{Executable=$executable;SourceKind='MSIX_PRIVATE_SIGNED_COPY';PackageFullName=$package.PackageFullName;SourceRoot=$source;CacheReused=$false;FilesVerified=$files.Count}
 }
 

@@ -28,7 +28,7 @@ function Start-OwnedOfficial([string]$Path){
 }
 try{
     if(Get-AppxPackage -Name Claude -ErrorAction SilentlyContinue){throw 'PREEXISTING_OFFICIAL_PACKAGE_NOT_OWNED'}
-    Add-AppxPackage -Path $msix -ErrorAction Stop
+    $null=& (Join-Path $PSScriptRoot 'Ensure-Official.ps1') -OfflinePackage $msix -RequireCatalogVersion
     $package=Get-AppxPackage -Name Claude | Select-Object -First 1
     if(-not $package){throw 'ACTUAL_MSIX_REGISTRATION_NOT_CONFIRMED'}
     $report.actualMsixRegistered=$true

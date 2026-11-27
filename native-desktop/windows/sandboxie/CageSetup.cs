@@ -20,7 +20,7 @@ internal static class CageSetup {
         }
         string work=drive!=null?Path.Combine(drive+@"\HONGAI-CAGE-InstallWork",Guid.NewGuid().ToString("N")):Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"HONGAI-CAGE-InstallWork",Guid.NewGuid().ToString("N"));
         try{
-            if(!ci&&MessageBox.Show("安装 HONG AI CAGE 桌面隔离测试版？\n\n包含未修改的 Sandboxie Classic 签名隔离组件（GPLv3）。复用已安装的官方 Claude Desktop。\n工程与登录数据优先放数据盘，不修改 Wi-Fi、Clash、TUN、系统 DNS 或路由，不重启。\n本地 MCP、文件与桌面扩展在专用环境运行；Cowork 虚拟机与系统级集成暂不启用。\n账号登录及真实业务仍需在操作者在场时验收。", "HONG AI CAGE",MessageBoxButtons.OKCancel,MessageBoxIcon.Information)!=DialogResult.OK)return 0;
+            if(!ci&&MessageBox.Show("安装 HONG AI CAGE 桌面隔离测试版？\n\n包含未修改的 Sandboxie Classic 签名组件（GPLv3）和兼容检查。Claude 缺少或较旧时，从官方源下载经哈希及签名核验的版本。\n工程与登录数据优先放数据盘；不修改 Wi-Fi、Clash、TUN、系统 DNS 或路由，不重启。\n第一次授权与配置完成后，日常双击即用。Cowork 虚拟机与系统级集成暂不启用。\n账号登录及真实业务仍需在操作者在场时验收。", "HONG AI CAGE",MessageBoxButtons.OKCancel,MessageBoxIcon.Information)!=DialogResult.OK)return 0;
             Extract(work);string result=Path.Combine(work,"installation-result.json");
             var start=new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows),@"System32\WindowsPowerShell\v1.0\powershell.exe"));
             string owner=WindowsIdentity.GetCurrent().User.Value,desktop=Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);

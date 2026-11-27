@@ -4,7 +4,7 @@ $ErrorActionPreference='Stop'
 if($env:GITHUB_ACTIONS -ne 'true'){throw 'DISPOSABLE_CI_ONLY'}
 $output=Join-Path $PSScriptRoot 'integrated-build'
 if(-not $FreshEngine){& (Join-Path $PSScriptRoot 'Build-Installer.ps1') -Destination $output}
-$setup=Join-Path $output 'HONGAI-CAGE-Desktop-0.3.0-pilot.3-Windows-x64-Setup.exe'
+$setup=Join-Path $output 'HONGAI-CAGE-Desktop-0.3.0-pilot.4-Windows-x64-Setup.exe'
 $target=if($FreshEngine){'D:\HONGAI-CAGE-Fresh-QA\Desktop'}else{'D:\HONGAI-CAGE-Integrated-QA\Desktop'}
 $prefix=if($FreshEngine){'fresh-'}else{''}
 $env:HONGAI_CAGE_CI_RESULT=Join-Path $output ($prefix+'installer-result.json')

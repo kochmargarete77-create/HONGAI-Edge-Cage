@@ -2,7 +2,7 @@
 param([string]$Destination,[switch]$NoShortcut,[string]$ResultPath,[string]$OriginalUserSid,[string]$OriginalDesktop)
 $ErrorActionPreference='Stop'
 if($PSVersionTable.PSEdition -eq 'Desktop'){$env:PSModulePath=(Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\Modules')+';'+(Join-Path $env:ProgramFiles 'WindowsPowerShell\Modules')}
-$report=[ordered]@{installed=$false;hostNetworkSettingsChanged=$false;rebootPerformed=$false;customerAccepted=$false}
+$report=[ordered]@{installed=$false;phase='VERIFY';hostNetworkSettingsChanged=$false;rebootPerformed=$false;customerAccepted=$false}
 try {
     if(-not [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'ADMIN_REQUIRED_FOR_SIGNED_ISOLATION_COMPONENT'}
     if(-not $OriginalUserSid){$OriginalUserSid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value}
@@ -15,8 +15,13 @@ try {
         $hash=$matches[1];$relative=$matches[2];$file=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot $relative))
         if(-not $file.StartsWith($PSScriptRoot+'\',[StringComparison]::OrdinalIgnoreCase)-or (Get-FileHash -LiteralPath $file).Hash -ine $hash){throw 'INSTALL_PAYLOAD_VERIFICATION_FAILED'}
     }
+    $env:TEMP=Join-Path $PSScriptRoot '.tmp';$env:TMP=$env:TEMP;$null=New-Item -ItemType Directory -Path $env:TEMP -Force
+    $report.phase='COMPATIBILITY'
+    $preflight=& (Join-Path $PSScriptRoot 'Test-Compatibility.ps1') -ReportPath (Join-Path $PSScriptRoot 'compatibility-report.json')
+    if(-not $preflight.ready){throw ('COMPATIBILITY_BLOCK: '+(($preflight.checks|Where-Object status -EQ 'BLOCK'|ForEach-Object action) -join ' '))}
     if(@(Get-Process Claude -ErrorAction SilentlyContinue).Count -gt 0){throw 'EXIT_CLAUDE_BEFORE_INSTALL'}
-    $official=Get-AppxPackage -User $ownerSid.Value -Name Claude|Where-Object {$_.Publisher -match 'Anthropic, PBC' -and $_.PackageFullName -match '^Claude_[0-9.]+_x64__pzs8sxrjxfjjc$'}|Sort-Object Version -Descending|Select-Object -First 1
+    $report.phase='OFFICIAL_DEPENDENCY'
+    $official=& (Join-Path $PSScriptRoot 'Ensure-Official.ps1') -OriginalUserSid $ownerSid.Value -RequireCatalogVersion
     if(-not $official){throw 'SUPPORTED_OFFICIAL_CLAUDE_X64_MSIX_NOT_INSTALLED'}
     $officialSignature=Get-AuthenticodeSignature -LiteralPath (Join-Path $official.InstallLocation 'app\Claude.exe')
     if($officialSignature.Status -ne 'Valid' -or $officialSignature.SignerCertificate.Subject -notmatch 'Anthropic, PBC'){throw 'OFFICIAL_CLAUDE_SIGNATURE_INVALID'}
@@ -33,6 +38,7 @@ try {
     if(Test-Path $data){$existingData=Get-Content -LiteralPath (Join-Path $data 'installation.json') -Raw -Encoding UTF8|ConvertFrom-Json;if($existingData.schema -cne 'hongai.cage.installation.v1' -or $existingData.ownerSid -cne $ownerSid.Value -or $existingData.dataRoot -cne $data){throw 'EXISTING_DATA_FOLDER_NOT_OWNED_BY_THIS_INSTALLATION'}}
     $null=New-Item -ItemType Directory -Path $parent -Force
     if((Get-PSDrive ($target.Substring(0,1))).Free -lt 5GB){throw 'NEED_AT_LEAST_5_GB_FREE_FOR_PROFILE_AND_WORKING_HEADROOM'}
+    $report.phase='ISOLATION_COMPONENT'
     $service=Get-Service SbieSvc -ErrorAction SilentlyContinue
     $fresh=$null -eq $service
     if($fresh){
@@ -72,14 +78,22 @@ try {
     Set-Acl -LiteralPath $data -AclObject $acl
     $stage=$target+'.stage-'+[guid]::NewGuid().ToString('N');$null=New-Item -ItemType Directory -Path $stage
     Copy-Item -Path (Join-Path $payload '*') -Destination $stage -Recurse
-    $receipt=[ordered]@{schema='hongai.cage.installation.v1';version='0.3.0-pilot.3';ownerSid=$ownerSid.Value;installRoot=$target;dataRoot=$data;enginePath=$core;engineFreshlyInstalled=$fresh;installedUtc=[datetime]::UtcNow.ToString('o');customerAccepted=$false}
+    $receipt=[ordered]@{schema='hongai.cage.installation.v1';version='0.3.0-pilot.4';ownerSid=$ownerSid.Value;installRoot=$target;dataRoot=$data;enginePath=$core;engineFreshlyInstalled=$fresh;installedUtc=[datetime]::UtcNow.ToString('o');customerAccepted=$false}
     $json=$receipt|ConvertTo-Json
     [IO.File]::WriteAllText((Join-Path $stage 'installation.json'),$json,[Text.UTF8Encoding]::new($false))
-    [IO.File]::WriteAllText((Join-Path $data 'installation.json'),$json,[Text.UTF8Encoding]::new($false))
     $backup=$null
     if(Test-Path $target){$recovery=Join-Path $parent 'Recovery';$null=New-Item -ItemType Directory -Path $recovery -Force;$backup=Join-Path $recovery ('Desktop-'+[guid]::NewGuid().ToString('N'));if((Resolve-Path -LiteralPath $target).Path -cne $target){throw 'UPGRADE_MOVE_SCOPE_MISMATCH'};Move-Item -LiteralPath $target -Destination $backup}
-    try{Move-Item -LiteralPath $stage -Destination $target}catch{if($backup -and -not(Test-Path $target)){Move-Item -LiteralPath $backup -Destination $target};throw}
+    $report.phase='COMMIT'
+    try{
+        Move-Item -LiteralPath $stage -Destination $target
+        $receiptPath=Join-Path $data 'installation.json';$pending=$receiptPath+'.'+[guid]::NewGuid().ToString('N')+'.tmp'
+        [IO.File]::WriteAllText($pending,$json,[Text.UTF8Encoding]::new($false))
+        if(Test-Path -LiteralPath $receiptPath){[IO.File]::Replace($pending,$receiptPath,$receiptPath+'.previous')}else{[IO.File]::Move($pending,$receiptPath)}
+    }catch{
+        if(Test-Path -LiteralPath $target){$failed=Join-Path $parent ('Desktop.failed-'+[guid]::NewGuid().ToString('N'));if([IO.Path]::GetDirectoryName($target) -cne $parent){throw 'UPGRADE_ROLLBACK_SCOPE_MISMATCH'};Move-Item -LiteralPath $target -Destination $failed}
+        if($backup -and -not(Test-Path $target)){Move-Item -LiteralPath $backup -Destination $target};throw
+    }
     if(-not $NoShortcut){$shell=New-Object -ComObject WScript.Shell;$link=$shell.CreateShortcut((Join-Path $OriginalDesktop 'HONG AI CAGE.lnk'));$link.TargetPath=Join-Path $target 'HONGAI-CAGE.exe';$link.WorkingDirectory=$target;$link.Description='HONG AI official desktop isolation workbench';$link.Save()}
-    $report.installed=$true;$report.installRoot=$target;$report.dataRoot=$data;$report.enginePath=$core;$report.version=$receipt.version
+    $report.installed=$true;$report.phase='INSTALLED';$report.installRoot=$target;$report.dataRoot=$data;$report.enginePath=$core;$report.version=$receipt.version;$report.officialVersion=[string]$official.Version
 }catch{$report.error=$_.Exception.Message;throw}
 finally{if($ResultPath){[IO.File]::WriteAllText($ResultPath,($report|ConvertTo-Json),[Text.UTF8Encoding]::new($false))};$report|ConvertTo-Json}

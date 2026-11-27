@@ -8,7 +8,7 @@ if(Test-Path $Destination){throw 'RUNTIME_BUILD_DESTINATION_EXISTS'}
 $null=New-Item -ItemType Directory -Path (Join-Path $Destination 'resources') -Force
 $env:TEMP=Join-Path $Destination '.tmp';$env:TMP=$env:TEMP;$null=New-Item -ItemType Directory -Path $env:TEMP -Force
 foreach($file in @('HONGAI.DesktopGuard.psm1','Managed-Claude-Policy.psm1','Native-Boundary-Bridge.psm1','New-HONGAI-Local-Handoff.ps1')){Copy-Item -LiteralPath (Join-Path $LegacyRuntime $file) -Destination $Destination}
-foreach($file in @('Run-Session.ps1','Cage-UI.ps1','Official-Runtime.psm1')){Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination $Destination}
+foreach($file in @('Run-Session.ps1','Cage-UI.ps1','Official-Runtime.psm1','Ensure-Official.ps1','Update-Official.ps1','Official-Catalog.json','Test-Compatibility.ps1')){Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination $Destination}
 $compiler="$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 & $compiler /nologo /platform:x64 /target:exe /optimize+ /r:System.Web.Extensions.dll /main:HongAi.NativeBoundary.OfficialProgram ("/out:"+(Join-Path $Destination 'resources\HONGAI-OfficialBoundary.exe')) (Join-Path $native 'WfpBoundary.cs') (Join-Path $native 'OfficialBoundary.cs')
 if($LASTEXITCODE -ne 0){throw 'INVENTORY_HELPER_COMPILE_FAILED'}

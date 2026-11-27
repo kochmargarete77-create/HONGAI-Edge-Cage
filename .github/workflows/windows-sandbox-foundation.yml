@@ -18,7 +18,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Test signed sandbox engine on disposable Windows host
         shell: powershell
-        run: ./native-desktop/windows/sandboxie/Test-Foundation.ps1
+        run: |
+          ./native-desktop/windows/sandboxie/Test-RuntimeLifecycle.ps1 -TemporaryRoot $env:RUNNER_TEMP
+          ./native-desktop/windows/sandboxie/Test-Foundation.ps1
       - uses: actions/upload-artifact@v4
         if: always()
         with:

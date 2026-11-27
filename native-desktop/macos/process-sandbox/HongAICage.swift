@@ -208,9 +208,9 @@ enum CageRuntime {
     }
     static func officialApp() throws -> URL {
         let paths = [URL(fileURLWithPath:"/Applications/Claude.app"), FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications/Claude.app")]
-        guard let app = paths.first(where: { FileManager.default.fileExists(atPath:$0.path) }) else { throw CageFailure("请先安装 Anthropic 官方 Claude Desktop。") }
-        let requirement = "anchor apple generic and identifier \"com.anthropic.claudefordesktop\" and certificate leaf[subject.OU] = \"Q6L2SF6YDW\""
-        _ = try command("/usr/bin/codesign", ["--verify", "--deep", "--strict", "-R=" + requirement, app.path], timeout:30)
+        let installed=paths.filter{FileManager.default.fileExists(atPath:$0.path)}
+        guard let app = installed.sorted(by:{((try? OfficialRuntime.version($0)) ?? "0").compare((try? OfficialRuntime.version($1)) ?? "0",options:.numeric) == .orderedDescending}).first else { throw CageFailure("请点“安装或更新官方 Claude”，无需另外准备开发环境。") }
+        try OfficialRuntime.verify(app)
         return app.resolvingSymlinksInPath()
     }
     static func profile(port: Int, application: URL, home: URL) throws -> String {
@@ -287,19 +287,20 @@ final class CageController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var statusItem:NSStatusItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        window = NSWindow(contentRect:NSRect(x:0,y:0,width:650,height:500), styleMask:[.titled,.closable,.miniaturizable], backing:.buffered, defer:false)
+        window = NSWindow(contentRect:NSRect(x:0,y:0,width:700,height:580), styleMask:[.titled,.closable,.miniaturizable], backing:.buffered, defer:false)
         window.title = "HONG AI CAGE · 桌面进程隔离测试版"; window.center()
         window.delegate=self;window.isReleasedWhenClosed=false
         window.appearance=NSAppearance(named:.aqua)
         window.contentView!.wantsLayer=true
         window.contentView!.layer!.backgroundColor=NSColor(calibratedWhite:0.975,alpha:1).cgColor
-        let content = NSStackView(); content.orientation = .vertical; content.alignment = .leading; content.spacing = 18; content.edgeInsets = NSEdgeInsets(top:28,left:30,bottom:28,right:30)
+        let content = NSStackView(); content.orientation = .vertical; content.alignment = .leading; content.spacing = 12; content.edgeInsets = NSEdgeInsets(top:28,left:30,bottom:28,right:30)
         let brand = NSTextField(labelWithString:"HONG AI  /  CAGE")
         brand.font = .systemFont(ofSize:27,weight:.bold); brand.textColor = NSColor(calibratedRed:0.7,green:0.05,blue:0.12,alpha:1)
         let subtitle = NSTextField(labelWithString:"官方桌面程序 · 指定代理端口 · 独立登录数据")
         subtitle.textColor = .secondaryLabelColor
         let choose = NSButton(title:"① 选择交接文件",target:self,action:#selector(chooseHandoff))
         let folder = NSButton(title:"② 选择工作文件夹",target:self,action:#selector(chooseWorkspace))
+        let official = NSButton(title:"安装或更新官方 Claude",target:self,action:#selector(updateOfficial))
         start.target = self; start.action = #selector(startSession); start.bezelStyle = .rounded
         let stop = NSButton(title:"停止隔离会话",target:self,action:#selector(stopSession))
         for button in [choose,folder,start,stop] {button.bezelStyle = .rounded;button.controlSize = .large}
@@ -307,7 +308,7 @@ final class CageController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let actions = NSStackView(views:[start,stop]); actions.spacing = 18
         let note = NSTextField(wrappingLabelWithString:"保留现有 Clash、Wi-Fi 和远控设置。仅本进程树受限；外部浏览器登录、Cowork 和系统集成尚未验收。")
         note.font = .systemFont(ofSize:12); note.textColor = .secondaryLabelColor
-        for view in [brand,subtitle,choose,fileLabel,folder,workspaceLabel,actions,status,note] { content.addArrangedSubview(view) }
+        for view in [brand,subtitle,choose,fileLabel,folder,workspaceLabel,official,actions,status,note] { content.addArrangedSubview(view) }
         content.translatesAutoresizingMaskIntoConstraints = false; window.contentView!.addSubview(content)
         NSLayoutConstraint.activate([content.leadingAnchor.constraint(equalTo:window.contentView!.leadingAnchor),content.trailingAnchor.constraint(equalTo:window.contentView!.trailingAnchor),content.topAnchor.constraint(equalTo:window.contentView!.topAnchor)])
         let item=NSStatusBar.system.statusItem(withLength:NSStatusItem.variableLength)
@@ -350,6 +351,20 @@ final class CageController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
     @objc func chooseHandoff() { let panel=NSOpenPanel(); panel.canChooseDirectories=false; panel.allowsMultipleSelection=false; if panel.runModal() == .OK { handoffURL=panel.url; fileLabel.stringValue=panel.url!.lastPathComponent } }
     @objc func chooseWorkspace() { let panel=NSOpenPanel(); panel.canChooseDirectories=true; panel.canChooseFiles=false; if panel.runModal() == .OK { workspace=panel.url?.resolvingSymlinksInPath(); workspaceLabel.stringValue=workspace!.path } }
+    @objc func updateOfficial() {
+        guard !busy,process == nil else {status.stringValue="请先停止隔离会话，再更新。";return}
+        guard NSRunningApplication.runningApplications(withBundleIdentifier:"com.anthropic.claudefordesktop").isEmpty else {status.stringValue="请先退出 Claude，再更新；不会强退客户程序。";return}
+        busy=true;start.isEnabled=false;message("正在从官方源核验并安装，原有版本和网络设置保持可恢复……")
+        let file=handoffURL
+        DispatchQueue.global(qos:.userInitiated).async {
+            do {
+                let root=FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/HONGAI-CAGE-Desktop")
+                let h=file.flatMap{try? Handoff.decode(Data(contentsOf:$0),requireFresh:false)}
+                let result=try OfficialRuntime.installLatest(root:root,proxy:h?.proxy)
+                DispatchQueue.main.async {self.busy=false;self.start.isEnabled=true;self.status.stringValue=result}
+            } catch {DispatchQueue.main.async {self.busy=false;self.start.isEnabled=true;self.status.stringValue="更新未应用：\(error)。保留已有版本。"}}
+        }
+    }
     func message(_ text:String) { DispatchQueue.main.async { self.status.stringValue=text } }
     @objc func startSession() {
         guard !busy, process == nil else { return }
@@ -365,10 +380,11 @@ final class CageController: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 guard !workspace.path.hasPrefix(root.path+"/"),!root.path.hasPrefix(workspace.path+"/"),workspace != root,!home.path.hasPrefix(workspace.path+"/") else {throw CageFailure("请选择独立项目目录，不能选择系统、用户根目录或隔离配置目录。")}
                 let enrolled=root.appendingPathComponent("enrolled-handoff.json")
                 let admissionData=try Data(contentsOf:file)
-                let h=try Handoff.decode(admissionData,requireFresh:file.standardizedFileURL != enrolled.standardizedFileURL), app=try CageRuntime.officialApp()
+                let h=try Handoff.decode(admissionData,requireFresh:file.standardizedFileURL != enrolled.standardizedFileURL), source=try CageRuntime.officialApp()
                 for _ in 0..<3 { try CageRuntime.verifyExit(h) }
                 guard root.resolvingSymlinksInPath() == root.standardizedFileURL else {throw CageFailure("隔离目录包含链接，请由维护人员检查。")}
                 try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true,attributes:[.posixPermissions:0o700])
+                let app=try OfficialRuntime.snapshot(source,root:root)
                 let ownProfile=root.appendingPathComponent("profile"), temp=root.appendingPathComponent("temp"), toolHome=root.appendingPathComponent("tool-home")
                 for item in [ownProfile,temp,toolHome] { try FileManager.default.createDirectory(at:item,withIntermediateDirectories:true,attributes:[.posixPermissions:0o700]) }
                 let broker=SessionBroker(upstream:UInt16(h.loopback.mixedPort));try broker.start()
@@ -414,7 +430,7 @@ final class CageController: NSObject, NSApplicationDelegate, NSWindowDelegate {
             do {
                 if DispatchTime.now().uptimeNanoseconds >= self.nextStorageCheck {
                     let root=FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/HONGAI-CAGE-Desktop")
-                    try checkStorageBudget(root)
+                    try checkStorageBudget(root,maximumBytes:9*1024*1024*1024)
                     self.nextStorageCheck=DispatchTime.now().uptimeNanoseconds+30_000_000_000
                 }
                 try CageRuntime.verifyExit(h)

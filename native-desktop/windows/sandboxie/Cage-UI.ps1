@@ -19,11 +19,23 @@ $folder=[Windows.Forms.Button]::new();$folder.Text='选择工作文件夹';$fold
 $folderLabel=[Windows.Forms.Label]::new();$folderLabel.SetBounds(238,181,440,27);$folderLabel.AutoEllipsis=$true;$folderLabel.Text='未选择';$form.Controls.Add($folderLabel)
 $start=[Windows.Forms.Button]::new();$start.Text='启动 Claude 桌面版';$start.BackColor=[Drawing.Color]::FromArgb(185,26,42);$start.ForeColor=[Drawing.Color]::White;$start.FlatStyle='Flat';$start.SetBounds(30,242,224,43);$form.Controls.Add($start)
 $stop=[Windows.Forms.Button]::new();$stop.Text='停止隔离会话';$stop.SetBounds(271,242,180,43);$stop.Enabled=$false;$form.Controls.Add($stop)
+$update=[Windows.Forms.Button]::new();$update.Text='更新官方 Claude';$update.SetBounds(470,242,200,43);$form.Controls.Add($update)
 $status=[Windows.Forms.Label]::new();$status.SetBounds(30,308,650,58);$status.Text='请保持 Clash 和远控运行。此工作台不修改 Wi-Fi、TUN、系统 DNS 或路由。';$form.Controls.Add($status)
 $note=[Windows.Forms.Label]::new();$note.SetBounds(30,377,650,40);$note.ForeColor=[Drawing.Color]::DimGray;$note.Font=[Drawing.Font]::new('Microsoft YaHei UI',9);$note.Text='本地 MCP 与文件工具在专用隔离环境中运行。Cowork 虚拟机和系统级集成暂不启用。';$form.Controls.Add($note)
 $script:chosenHandoff=$null;$script:chosenWorkspace=$null;$script:worker=$null;$script:stopSignal=$null
 $script:userExit=$false
 $script:dailyObserved=$false
+$script:updateWorker=$null;$script:updateResult=$null
+$update.Add_Click({
+    if($script:worker -or $script:updateWorker){$status.Text='请先停止隔离会话，再更新。';return}
+    try{
+        $script:updateResult=Join-Path $data ('official-update-'+[guid]::NewGuid().ToString('N')+'.json')
+        $arguments='-NoLogo -NoProfile -ExecutionPolicy Bypass -File "'+(Join-Path $runtime 'Update-Official.ps1')+'" -ResultPath "'+$script:updateResult+'" -OriginalUserSid '+$installation.ownerSid+' -TemporaryDirectory "'+$env:TEMP+'"'
+        $info=[Diagnostics.ProcessStartInfo]::new("$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe",$arguments);$info.UseShellExecute=$true;$info.Verb='runas';$info.WindowStyle='Hidden'
+        $script:updateWorker=[Diagnostics.Process]::Start($info)
+        $start.Enabled=$false;$update.Enabled=$false;$status.Text='正在核验官方安装源；已有配置与登录数据保持不变。'
+    }catch{$status.Text='更新未开始：'+$_.Exception.Message}
+})
 if(Test-Path -LiteralPath (Join-Path $data 'enrolled-handoff.json')){$fileLabel.Text='已保存交接配置；启动时重新核对最终出口。'}
 if(Test-Path -LiteralPath (Join-Path $data 'workspace.json')){try{$saved=Get-Content (Join-Path $data 'workspace.json') -Raw -Encoding UTF8|ConvertFrom-Json;$script:chosenWorkspace=[string]$saved.workspace;$folderLabel.Text=$script:chosenWorkspace}catch{}}
 $import.Add_Click({$dialog=[Windows.Forms.OpenFileDialog]::new();$dialog.Filter='Clash交接文件|clash-handoff.json|JSON|*.json';if($dialog.ShowDialog() -eq 'OK'){$script:chosenHandoff=$dialog.FileName;$fileLabel.Text=[IO.Path]::GetFileName($dialog.FileName)}})
@@ -42,7 +54,7 @@ function Start-OwnSession {
         if($DailyLaunchSmokeTest){$arguments+=' -OfflineAcceptance -MaximumSessionSeconds 8'}
         $info=[Diagnostics.ProcessStartInfo]::new("$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe",$arguments);$info.UseShellExecute=$false;$info.CreateNoWindow=$true
         $script:worker=[Diagnostics.Process]::Start($info)
-        $start.Enabled=$false;$import.Enabled=$false;$folder.Enabled=$false;$stop.Enabled=$true;$status.Text='正在核对签名、最终出口和隔离配置……'
+        $start.Enabled=$false;$update.Enabled=$false;$import.Enabled=$false;$folder.Enabled=$false;$stop.Enabled=$true;$status.Text='正在核对签名、最终出口和隔离配置……'
     }catch{[Windows.Forms.MessageBox]::Show($_.Exception.Message,'HONG AI CAGE')|Out-Null}
 }
 $start.Add_Click({Start-OwnSession})
@@ -54,12 +66,16 @@ $exitItem=$menu.Items.Add('停止并退出');$exitItem.Add_Click({$script:userEx
 $tray.ContextMenuStrip=$menu;$tray.Add_DoubleClick({$form.Show();$form.WindowState='Normal';$form.Activate()})
 $timer=[Windows.Forms.Timer]::new();$timer.Interval=1000
 $timer.Add_Tick({
+    if($script:updateWorker -and $script:updateWorker.HasExited){
+        try{$result=Get-Content -LiteralPath $script:updateResult -Raw -Encoding UTF8|ConvertFrom-Json;$status.Text=if($result.updated){'官方版本已就绪：'+$result.version+'；下次启动继承原隔离规则。'}else{'更新未应用：'+$result.error}}catch{$status.Text='更新未完成，请查看本机官方更新记录；原有版本保留。'}
+        $script:updateWorker.Dispose();$script:updateWorker=$null;$start.Enabled=$true;$update.Enabled=$true
+    }
     if($script:worker){
         $path=Join-Path $data 'session-status.json'
         if(Test-Path $path){try{$state=Get-Content $path -Raw -Encoding UTF8|ConvertFrom-Json;switch($state.phase){'RUNNING'{$status.Text='隔离会话运行中；已核对出口：'+$state.exitIp;if($DailyLaunchSmokeTest -and -not $form.Visible -and $state.runtimeCacheReused){$script:dailyObserved=$true}}'BLOCKED'{$status.Text='会话已停止：'+$state.error}'STOPPED'{$status.Text='本次隔离会话已关闭。'}}}catch{}}
         if($script:worker.HasExited){
             if($script:worker.ExitCode -ne 0){$form.Show();$form.WindowState='Normal';$form.Activate();if(-not $status.Text.StartsWith('会话已停止：')){$status.Text='启动未完成，请查看本机 session-status.json；已保存的配置不需要重新选择。'}}
-            $start.Enabled=$true;$import.Enabled=$true;$folder.Enabled=$true;$stop.Enabled=$false;$script:worker.Dispose();$script:worker=$null;$script:chosenHandoff=$null
+            $start.Enabled=$true;$update.Enabled=$true;$import.Enabled=$true;$folder.Enabled=$true;$stop.Enabled=$false;$script:worker.Dispose();$script:worker=$null;$script:chosenHandoff=$null
             if($DailyLaunchSmokeTest){[IO.File]::WriteAllText((Join-Path $data 'daily-launch-test.json'),(@{automaticLaunch=$script:dailyObserved;settingsVisible=$form.Visible;loginAttempted=$false}|ConvertTo-Json),[Text.UTF8Encoding]::new($false));$script:userExit=$true;$form.Close()}
         }
     }
