@@ -21,8 +21,8 @@ try{
     $cpu=Get-CimInstance Win32_Processor|Select-Object -First 1
     if($cpu.Architecture -ne 9){throw 'CURRENT_CAGE_INSTALLER_REQUIRES_X64_WINDOWS'}
     if([int](Get-CimInstance Win32_OperatingSystem).BuildNumber -lt 19041){throw 'WINDOWS_BUILD_NOT_SUPPORTED'}
-    $setup=Join-Path $PSScriptRoot 'HONGAI-CAGE-Desktop-0.3.0-pilot.4-Windows-x64-Setup.exe'
-    if((Get-FileHash -LiteralPath $setup).Hash -cne 'D246F490C2DDA51B38BCFB87D803E23EFFB8A21AC4C69BBFA52757521B38A166'){throw 'SETUP_HASH_MISMATCH_DO_NOT_RUN'}
+    $setup=Join-Path $PSScriptRoot 'HONGAI-CAGE-Desktop-0.3.0-pilot.5-Windows-x64-Setup.exe'
+    if((Get-FileHash -LiteralPath $setup).Hash -cne '61D2F37155B04E76AAFEC821E55B7F1947BE0AF57E7FBFBA5093FF51FA442176'){throw 'SETUP_HASH_MISMATCH_DO_NOT_RUN'}
     $owner=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
     if($owner -in @('S-1-5-18','S-1-5-19','S-1-5-20')){throw 'RUN_AS_CUSTOMER_USER_NOT_SYSTEM_SERVICE_IDENTITY'}
     $candidates=@('E:\HONGAI-CAGE\Desktop','D:\HONGAI-CAGE\Desktop',(Join-Path $env:ProgramFiles 'HONGAI-CAGE\Desktop'))
@@ -32,12 +32,12 @@ try{
         # provider exception. C-only client machines are valid candidates.
         if(-not [IO.Directory]::Exists($path)){continue}
         $file=Join-Path $path 'installation.json'
-        if(Test-Path -LiteralPath $file){$receipt=Read-LocalJson $file;if($receipt.schema -cne 'hongai.cage.installation.v1' -or $receipt.installRoot -cne $path -or $receipt.ownerSid -cne $owner){throw 'EXISTING_INSTALLATION_REQUIRES_OWNER_REVIEW'};if($receipt.version -cne '0.3.0-pilot.4'){throw 'INSTALLED_CAGE_VERSION_REVIEW_REQUIRED_NO_AUTOMATIC_REINSTALL'};$installed+= $receipt}
+        if(Test-Path -LiteralPath $file){$receipt=Read-LocalJson $file;if($receipt.schema -cne 'hongai.cage.installation.v1' -or $receipt.installRoot -cne $path -or $receipt.ownerSid -cne $owner){throw 'EXISTING_INSTALLATION_REQUIRES_OWNER_REVIEW'};if($receipt.version -cnotin @('0.3.0-pilot.4','0.3.0-pilot.5')){throw 'INSTALLED_CAGE_VERSION_REVIEW_REQUIRED_NO_AUTOMATIC_REINSTALL'};$installed+= $receipt}
     }
     if($installed.Count -gt 1){throw 'MULTIPLE_CAGE_INSTALLATIONS_REVIEW_NO_AUTOMATIC_REINSTALL'}
     $result.caseId=$request.caseId
-    if($installed.Count -eq 0){
-        $result.phase='NEEDS_INSTALLER';$result.nextAction='RUN_SETUP_AND_USE_AVAILABLE_COMPUTER_USE_FOR_ORDINARY_UI_ONLY'
+    if($installed.Count -eq 0 -or $installed[0].version -ceq '0.3.0-pilot.4'){
+        $result.phase=if($installed.Count){'NEEDS_UPGRADE'}else{'NEEDS_INSTALLER'};$result.nextAction='RUN_SETUP_AND_USE_AVAILABLE_COMPUTER_USE_FOR_ORDINARY_UI_ONLY_PRESERVE_EXISTING_DATA'
         if($LaunchInstaller){
             if(@(Get-Process -ErrorAction SilentlyContinue|Where-Object {$_.ProcessName -in @('Claude','HONGAI-CAGE')}).Count){throw 'CLOSE_CLAUDE_AND_CAGE_NORMALLY_BEFORE_INSTALL_NO_FORCE_KILL'}
             $p=Start-Process -FilePath $setup -PassThru

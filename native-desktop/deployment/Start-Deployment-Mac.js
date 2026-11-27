@@ -18,18 +18,26 @@ function run(argv){
         var ws=$.NSURL.fileURLWithPath(workspace);if(ObjC.unwrap(ws.URLByResolvingSymlinksInPath.path)!==ObjC.unwrap(ws.URLByStandardizingPath.path))throw new Error('WORKSPACE_LINK_PATH_REJECTED');
         var workspaceAttributes=fm.attributesOfItemAtPathError(workspace,null);
         if(!workspaceAttributes||ObjC.unwrap(workspaceAttributes.objectForKey('NSFileType'))!=='NSFileTypeDirectory')throw new Error('WORKSPACE_MUST_BE_DIRECTORY');
-        var pkg=root+'/HONGAI-CAGE-Desktop-0.3.0-build9-macOS-Universal.pkg';
-        if(command('/usr/bin/shasum',['-a','256',pkg]).split(/\s+/)[0]!=='fb4b2f48c2f8e319273fed2f97837d1c0cc4ba4b4ecdcfcbeb6ac737d2de34de')throw new Error('SETUP_HASH_MISMATCH_DO_NOT_RUN');
+        var pkg=root+'/HONGAI-CAGE-Desktop-0.3.0-build10-macOS-Universal.pkg';
+        if(command('/usr/bin/shasum',['-a','256',pkg]).split(/\s+/)[0]!=='bb85c55ace5c0c8dedebe77838a6bc51e04a2bc3fa245ca7980fee840c955b67')throw new Error('SETUP_HASH_MISMATCH_DO_NOT_RUN');
         var app='/Applications/HONG AI CAGE Desktop.app',dataRoot=home+'/Library/Application Support/HONGAI-CAGE-Desktop';
         if(workspace===dataRoot||workspace.indexOf(dataRoot+'/')===0||dataRoot.indexOf(workspace+'/')===0||home.indexOf(workspace+'/')===0)throw new Error('WORKSPACE_OVERLAPS_PROTECTED_STORAGE');
         result.caseId=req.caseId;
-        if(!exists(app)){
-            result.phase='NEEDS_INSTALLER';result.nextAction='RUN_PKG_WITH_AVAILABLE_COMPUTER_USE_FOR_ORDINARY_UI_ONLY';
+        var needsUpgrade=false;
+        if(exists(app)){
+            var installedInfo=$.NSDictionary.dictionaryWithContentsOfFile(app+'/Contents/Info.plist');
+            if(!installedInfo||ObjC.unwrap(installedInfo.objectForKey('CFBundleIdentifier'))!=='com.hongai.cage.desktop.pilot')throw new Error('INSTALLED_APP_IDENTITY_MISMATCH');
+            var build=String(ObjC.unwrap(installedInfo.objectForKey('CFBundleVersion')));
+            if(['9','10'].indexOf(build)===-1)throw new Error('INSTALLED_CAGE_VERSION_REVIEW_REQUIRED_NO_AUTOMATIC_REINSTALL');
+            command('/usr/bin/codesign',['--verify','--strict',app]);needsUpgrade=build==='9';
+        }
+        if(!exists(app)||needsUpgrade){
+            result.phase=needsUpgrade?'NEEDS_UPGRADE':'NEEDS_INSTALLER';result.nextAction='RUN_PKG_WITH_AVAILABLE_COMPUTER_USE_FOR_ORDINARY_UI_ONLY_PRESERVE_EXISTING_DATA';
             if(action==='install'){command('/usr/bin/open',[pkg]);result.installerStarted=true;result.phase='WAITING_INSTALLER_UI';result.nextAction='COMPLETE_INSTALLER_UI_THEN_RERUN_CHECK_DO_NOT_DISABLE_GATEKEEPER';}
         }else{
             var info=$.NSDictionary.dictionaryWithContentsOfFile(app+'/Contents/Info.plist');
             if(!info||ObjC.unwrap(info.objectForKey('CFBundleIdentifier'))!=='com.hongai.cage.desktop.pilot')throw new Error('INSTALLED_APP_IDENTITY_MISMATCH');
-            if(String(ObjC.unwrap(info.objectForKey('CFBundleVersion')))!=='9')throw new Error('INSTALLED_CAGE_VERSION_REVIEW_REQUIRED_NO_AUTOMATIC_REINSTALL');
+            if(String(ObjC.unwrap(info.objectForKey('CFBundleVersion')))!=='10')throw new Error('INSTALLED_CAGE_VERSION_REVIEW_REQUIRED_NO_AUTOMATIC_REINSTALL');
             if(ObjC.unwrap($.NSURL.fileURLWithPath(app).URLByResolvingSymlinksInPath.path)!==app)throw new Error('INSTALLED_APP_LINK_PATH_REJECTED');
             command('/usr/bin/codesign',['--verify','--strict',app]);
             var configured=false;

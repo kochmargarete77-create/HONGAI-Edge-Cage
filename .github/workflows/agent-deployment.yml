@@ -20,7 +20,7 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh run download 45941872330 --repo ${{ github.repository }} --name windows-signed-sandbox-foundation-evidence-windows-2022 --dir "$env:RUNNER_TEMP/reference"
+        run: gh run download 45997535518 --repo ${{ github.repository }} --name windows-signed-sandbox-foundation-evidence-windows-2022 --dir "$env:RUNNER_TEMP/reference"
       - name: Check shared contract, native PowerShell and real-package read-only plan
         shell: powershell
         run: |
@@ -37,7 +37,7 @@ jobs:
       - name: Fetch exact previously tested installer for hash and plan checks
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh run download 45941872352 --repo ${{ github.repository }} --name macOS-desktop-pilot-macos-15 --dir "$RUNNER_TEMP/reference"
+        run: gh run download 45997535523 --repo ${{ github.repository }} --name macOS-desktop-pilot-macos-15 --dir "$RUNNER_TEMP/reference"
       - name: Check shared contract and real-package native JXA plan
         run: |
           node native-desktop/deployment/test-contract.js

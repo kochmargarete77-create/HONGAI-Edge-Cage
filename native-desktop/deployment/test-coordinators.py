@@ -14,7 +14,7 @@ def main():
         raise RuntimeError('DISPOSABLE_CI_ONLY')
     root=pathlib.Path(__file__).resolve().parent
     windows=sys.platform=='win32'
-    name='HONGAI-CAGE-Desktop-0.3.0-pilot.4-Windows-x64-Setup.exe' if windows else 'HONGAI-CAGE-Desktop-0.3.0-build9-macOS-Universal.pkg'
+    name='HONGAI-CAGE-Desktop-0.3.0-pilot.5-Windows-x64-Setup.exe' if windows else 'HONGAI-CAGE-Desktop-0.3.0-build10-macOS-Universal.pkg'
     source_name=name if windows else 'HONGAI-CAGE-Desktop-macOS-Universal-PILOT.pkg'
     source=list(pathlib.Path(sys.argv[1]).rglob(source_name))
     assert len(source)==1, source
