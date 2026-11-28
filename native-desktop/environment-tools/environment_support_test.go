@@ -67,6 +67,32 @@ func TestEnvironmentSupportEndpointIsAuthenticatedAndDoesNotLaunchHelpers(t *tes
 	if w.Code != 200 || !strings.Contains(w.Header().Get("Content-Disposition"), "HONGAI-Support.json") || bytes.Contains(w.Body.Bytes(), []byte(canary)) || bytes.Contains(w.Body.Bytes(), []byte(s.token)) {
 		t.Fatal("support response authentication or privacy failed")
 	}
+	export := func(origin, body string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodPost, s.baseURL+"/api/support/export", strings.NewReader(body))
+		r.Header.Set("Authorization", "Bearer "+s.token)
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("Origin", origin)
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, r)
+		return w
+	}
+	if export("https://other.example", "{}").Code != 403 || export(s.baseURL, `{"path":"elsewhere"}`).Code != 400 {
+		t.Fatal("native export accepted a cross-origin or caller-chosen destination")
+	}
+	if _, e := os.Stat(filepath.Join(root, "diagnostics")); !os.IsNotExist(e) {
+		t.Fatal("rejected export created state")
+	}
+	var result struct {
+		FilePath string `json:"filePath"`
+	}
+	w = export(s.baseURL, "{}")
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &result) != nil || filepath.Dir(result.FilePath) != filepath.Join(root, "diagnostics") {
+		t.Fatal("native support file was not saved inside its owned directory")
+	}
+	contents, e := os.ReadFile(result.FilePath)
+	if e != nil || bytes.Contains(contents, []byte(canary)) || bytes.Contains(contents, []byte(root)) || bytes.Contains(contents, []byte(s.token)) {
+		t.Fatal("native support file violated the selected-field export boundary")
+	}
 	s.markClosing()
 	if request(true).Code != 409 {
 		t.Fatal("support request accepted during shutdown")

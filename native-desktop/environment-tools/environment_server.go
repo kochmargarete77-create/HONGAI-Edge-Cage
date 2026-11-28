@@ -34,6 +34,7 @@ type environmentOperations struct {
 	inventory func(context.Context) (EnvironmentInventory, error)
 	probe     func(context.Context, EnvironmentSettings) (ProxyObservation, error)
 	launch    func(context.Context, OfficialClient) error
+	reveal    func(context.Context, string) error
 }
 type environmentServer struct {
 	root, token, baseURL, instance string
@@ -171,7 +172,17 @@ func (s *environmentServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.URL.Path == "/api/ping" && r.Method == "GET":
 		_ = json.NewEncoder(w).Encode(map[string]any{"instance": s.instance, "version": environmentVersion})
-	case r.URL.Path == "/api/support" && r.Method == "GET":
+	case (r.URL.Path == "/api/support" && r.Method == "GET") || (r.URL.Path == "/api/support/export" && r.Method == "POST"):
+		if r.Method == "POST" {
+			if !environmentJSONContentType(r) {
+				apiError(w, 415, "JSON_CONTENT_TYPE_REQUIRED")
+				return
+			}
+			if _, e := readEnvironmentObject(r, 128); e != nil {
+				apiError(w, 400, safeEnvironmentCode(e))
+				return
+			}
+		}
 		s.mu.Lock()
 		if s.closing || s.ctx.Err() != nil || s.busy {
 			s.mu.Unlock()
@@ -207,6 +218,19 @@ func (s *environmentServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}, environmentSupportOptions{SettingsCached: true, Settings: cachedSettings})
 		if e != nil {
 			apiError(w, 409, safeEnvironmentCode(e))
+			return
+		}
+		if r.Method == "POST" {
+			path, e := saveEnvironmentSupportExport(s.root, report)
+			if e != nil {
+				apiError(w, 409, safeEnvironmentCode(e))
+				return
+			}
+			revealRequested := false
+			if s.ops.reveal != nil && s.ctx.Err() == nil {
+				revealRequested = s.ops.reveal(ctx, s.root) == nil
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "DIAGNOSTIC_SAVED", "filePath": path, "folderOpenRequested": revealRequested})
 			return
 		}
 		w.Header().Set("Content-Disposition", `attachment; filename="HONGAI-Support.json"`)
@@ -466,7 +490,7 @@ func serveEnvironment(root string, noBrowser bool, duration time.Duration) error
 	defer listener.Close()
 	base := "http://" + listener.Addr().String()
 	token := randomName() + randomName()
-	s := newEnvironmentServer(root, base, token, environmentOperations{inventory: inventoryEnvironment, probe: probeEnvironmentProxy, launch: launchOfficialClient})
+	s := newEnvironmentServer(root, base, token, environmentOperations{inventory: inventoryEnvironment, probe: probeEnvironmentProxy, launch: launchOfficialClient, reveal: revealEnvironmentDiagnostics})
 	defer func() {
 		s.markClosing()
 		done := make(chan struct{})

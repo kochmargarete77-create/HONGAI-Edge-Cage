@@ -30,7 +30,7 @@ func TestEnvironmentBrowserConfigurationAndDailyEntryFlow(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 	c := exec.CommandContext(ctx, "node", "environment_ui_smoke.cjs")
-	c.Env = append(os.Environ(), "HONGAI_UI_TEST_URL="+server.URL+"/#"+s.token, "HONGAI_UI_TEST_OUTPUT="+outDir)
+	c.Env = append(os.Environ(), "HONGAI_UI_TEST_URL="+server.URL+"/#"+s.token, "HONGAI_UI_TEST_OUTPUT="+outDir, "HONGAI_UI_EXPORT_ROOT="+root)
 	if out, e := c.CombinedOutput(); e != nil {
 		if dir := os.Getenv("HONGAI_UI_ARTIFACT_DIR"); dir != "" {
 			_ = os.MkdirAll(dir, 0700)

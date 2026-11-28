@@ -19,7 +19,7 @@ import (
 	"time"
 )
 
-const environmentVersion = "0.2.2-environment-preview"
+const environmentVersion = "0.3.0-environment-preview"
 
 type EnvironmentSettings struct {
 	Version                 int    `json:"version"`
@@ -389,6 +389,30 @@ func removeEnvironment(root string) (map[string]any, error) {
 		}
 		name := entry.Name()
 		if allowed[name] {
+			continue
+		}
+		if entry.IsDir() && name == "diagnostics" {
+			dir, err := validateEnvironmentDiagnosticsDirectory(root)
+			if err != nil {
+				return nil, errors.New("DIAGNOSTICS_REQUIRE_REVIEW_BEFORE_UNINSTALL")
+			}
+			children, err := os.ReadDir(dir)
+			if err != nil || len(children) > 20 {
+				return nil, errors.New("DIAGNOSTICS_REQUIRE_REVIEW_BEFORE_UNINSTALL")
+			}
+			for _, child := range children {
+				info, statError := child.Info()
+				id := strings.TrimSuffix(strings.TrimPrefix(child.Name(), "hongai-support-"), ".json")
+				if statError != nil || !info.Mode().IsRegular() || info.Size() > 64*1024 || child.Name() != "hongai-support-"+id+".json" || len(id) != 32 || strings.Trim(id, "0123456789abcdef") != "" {
+					return nil, errors.New("EXTRA_CUSTOMER_FILES_REQUIRE_REVIEW_BEFORE_UNINSTALL")
+				}
+				var report struct {
+					Schema string `json:"schema"`
+				}
+				if decodeFile(filepath.Join(dir, child.Name()), &report) != nil || report.Schema != "hongai.environment-support.v1" {
+					return nil, errors.New("DIAGNOSTICS_REQUIRE_REVIEW_BEFORE_UNINSTALL")
+				}
+			}
 			continue
 		}
 		if entry.IsDir() && strings.HasPrefix(name, "runtime-") {

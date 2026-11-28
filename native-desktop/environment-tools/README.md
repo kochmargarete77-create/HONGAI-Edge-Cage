@@ -32,7 +32,7 @@ clears account state, changes host networking or deletes customer projects.
 Clash subscription and final-node credentials remain in the accepted Clash setup;
 the workbench accepts only the approved loopback entry, final IPv4 and target time zone.
 
-Environment workbench 0.2 adds native installer frontends, a redacted support
+Environment workbench 0.3 adds native installer frontends, a redacted support
 download, preserved cryptographic roots across Windows path case changes, and
 explicit recovery instead of overwriting unreadable encrypted settings. An
 active workbench must stop before switching its managed runtime during upgrade.
