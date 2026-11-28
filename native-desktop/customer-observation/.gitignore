@@ -2,3 +2,7 @@ tmp/
 out/
 __pycache__/
 session-*/
+report-*/
+*.ndjson
+*.jsonl
+events.local.json

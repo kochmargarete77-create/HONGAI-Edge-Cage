@@ -22,6 +22,42 @@ def encode(records):
 
 
 class AnalysisTests(unittest.TestCase):
+    def test_header_footer_and_sample_windows_are_validated_even_without_events(self):
+        records=fixtures()
+        records[0]["utcISO"]="2026-11-28T00:00:02Z"
+        result=summarize_bytes(encode(records))
+        self.assertIn({"code":"SAMPLE_OUTSIDE_DECLARED_UTC_WINDOW","sampleIndex":1},result["protocolIssues"])
+        records=fixtures();records[-1]["utcISO"]="2026-11-27T23:59:59Z"
+        self.assertIn({"code":"HEADER_FOOTER_UTC_ORDER_INVALID"},summarize_bytes(encode(records))["protocolIssues"])
+
+    def test_footer_elapsed_window_cannot_finish_before_an_observed_sample(self):
+        records=fixtures();records[-1]["elapsedSeconds"]=5
+        result=summarize_bytes(encode(records))
+        self.assertIn({"code":"SAMPLE_AFTER_DECLARED_ELAPSED_WINDOW","sampleIndex":2},result["protocolIssues"])
+        self.assertEqual(result["captureStructure"],"INCOMPLETE_OR_INCONSISTENT_RECORD_SEQUENCE")
+
+    def test_source_conflicts_cannot_upgrade_synthetic_data_to_customer_observation(self):
+        records = fixtures()
+        records[0]["synthetic"] = False
+        with self.assertRaisesRegex(SafeError, "PROVENANCE_CONFLICT"):
+            summarize_bytes(encode(records))
+        records = fixtures()
+        records[1]["tcp"]["source"] = "READ_ONLY_LOCAL_COMMAND"
+        with self.assertRaisesRegex(SafeError, "PROVENANCE_CONFLICT"):
+            summarize_bytes(encode(records))
+        records = fixtures(); del records[0]["source"]
+        self.assertEqual(summarize_bytes(encode(records))["evidenceProvenance"], "UNSPECIFIED_SOURCE_NOT_OBSERVATION_PROOF")
+
+    def test_empty_labels_with_nonzero_counts_are_protocol_issues_not_full_coverage(self):
+        records = fixtures()
+        records[1]["processes"]["status"] = "EMPTY"
+        records[1]["tcp"] = {"status":"EMPTY", "connectionsCount":1,"categories":[{"count":1}]}
+        report = summarize_bytes(encode(records))
+        self.assertEqual(report["captureStructure"], "INCOMPLETE_OR_INCONSISTENT_RECORD_SEQUENCE")
+        self.assertEqual(report["coverage"]["processNameRoles"]["notObservedSamples"],1)
+        self.assertEqual(report["coverage"]["tcpMetadata"]["notObservedSamples"],2)
+        self.assertEqual(len(report["protocolIssues"]),2)
+
     def test_complete_metadata_never_certifies_hardware_routes_or_accounts(self):
         result = summarize_bytes(encode(fixtures()))
         self.assertEqual(result["captureStructure"], "COMPLETE_RECORD_SEQUENCE")

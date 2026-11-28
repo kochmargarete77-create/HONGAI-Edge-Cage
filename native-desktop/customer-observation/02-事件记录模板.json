@@ -8,5 +8,5 @@
     "code": ["NONE", "NETWORK_ERROR", "HTTP_401", "HTTP_403", "HTTP_429", "LOGIN_SCREEN_SHOWN", "OTHER_UNCLASSIFIED"]
   },
   "events": [],
-  "instructions": "Add only UTC time, optional elapsedSeconds, and the enumerated kind/source/result/code. Do not add free-text notes, prompts, filenames, paths, addresses, account details or payloads. An empty events array means no event annotations were provided, not no activity."
+  "instructions": "Each event requires utcISO (UTC timestamp ending Z), kind, source, result and code. elapsedSeconds is optional; omit it when the observer monotonic baseline is unknown and do not derive it from header UTC. Use only the declared enumerations. Do not add free-text notes, prompts, filenames, paths, addresses, account details or payloads. Keep events empty until real annotations exist; an empty array means no annotations were provided, not no activity."
 }

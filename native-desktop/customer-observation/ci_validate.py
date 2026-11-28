@@ -28,13 +28,13 @@ def main():
     for key in ("TEMP", "TMP", "TMPDIR"):
         os.environ[key] = str(temporary)
     loader = unittest.TestLoader()
-    names = ["test_observation_analysis", "test_macos_collector"]
+    names = ["test_observation_analysis", "test_macos_collector", "test_activity_events", "test_compare_observations", "test_feedback_report"]
     if sys.platform == "darwin":
         names.append("test_macos_storage_native")
     suite = unittest.TestSuite(loader.loadTestsFromName(name) for name in names)
     stream = io.StringIO()
     result = unittest.TextTestRunner(stream=stream, verbosity=2).run(suite)
-    expected_count = 19 if sys.platform == "darwin" else 18
+    expected_count = 53 if sys.platform == "darwin" else 52
     accepted = result.wasSuccessful() and result.testsRun == expected_count and not result.skipped
     fixture_verified = False
     if sys.platform == "win32":
@@ -45,7 +45,13 @@ def main():
             fixture_verified = report["evidenceProvenance"] == "SYNTHETIC_FIXED_FIXTURE" and report["sampleCount"] == 2 and report["captureStructure"] == "COMPLETE_RECORD_SEQUENCE" and report["coverage"]["tcpMetadata"]["notObservedSamples"] == 1 and report["fullEnvironmentAccepted"] is False
             accepted = accepted and fixture_verified
     (output/"tests.txt").write_text(stream.getvalue(), encoding="utf-8")
-    summary = {"schema":"hongai.passive-observer-validation.v1", "sourceCommit":os.environ.get("GITHUB_SHA"), "result":"PASS" if accepted else "FAIL", "executionHost":{"platform":sys.platform,"architecture":platform.machine(),"python":platform.python_version()}, "unitTests":result.testsRun,"failures":len(result.failures),"errors":len(result.errors),"skipped":len(result.skipped),"source":"SYNTHETIC_FIXED_FIXTURE", "windowsFixtureVerified":fixture_verified,"nativeMacFilesystemTestExecuted":sys.platform=="darwin","processOrTcpLiveCollectionExecuted":False,"accountDataRead":False,"hostNetworkChanged":False,"fullEnvironmentAccepted":False}
+    demo_directory = None
+    if accepted:
+        from feedback_report import build_feedback, write_feedback
+        from test_activity_events import observation_records, encode, annotations
+        demonstration = build_feedback([encode(observation_records())],event_bytes=annotations())
+        demo_directory = write_feedback(str(output),demonstration)["relativeDirectory"]
+    summary = {"schema":"hongai.passive-observer-validation.v1", "sourceCommit":os.environ.get("GITHUB_SHA"), "result":"PASS" if accepted else "FAIL", "executionHost":{"platform":sys.platform,"architecture":platform.machine(),"python":platform.python_version()}, "unitTests":result.testsRun,"failures":len(result.failures),"errors":len(result.errors),"skipped":len(result.skipped),"source":"SYNTHETIC_FIXED_FIXTURE", "windowsFixtureVerified":fixture_verified,"nativeMacFilesystemTestExecuted":sys.platform=="darwin","syntheticFeedbackRelativeDirectory":demo_directory,"processOrTcpLiveCollectionExecuted":False,"accountDataRead":False,"hostNetworkChanged":False,"fullEnvironmentAccepted":False}
     (output/"validation.json").write_text(json.dumps(summary,indent=2)+"\n",encoding="utf-8")
     print(json.dumps(summary))
     if not accepted:

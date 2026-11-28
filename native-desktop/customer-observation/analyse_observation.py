@@ -86,6 +86,29 @@ def summarize_bytes(data):
         raise SafeError("LOG_MIXED_SESSIONS")
     if sum(item["recordType"] == "header" for item in records) != 1:
         raise SafeError("LOG_MULTIPLE_HEADERS")
+    synthetic = records[0].get("synthetic")
+    declared_source = records[0].get("source")
+    known_sources = {"READ_ONLY_LOCAL_COMMAND", "SYNTHETIC_FIXED_FIXTURE"}
+    sources = set()
+    for item in records:
+        candidates = [item]
+        for key in ("processes", "tcp"):
+            if isinstance(item.get(key), dict):
+                candidates.append(item[key])
+        for candidate in candidates:
+            if "source" in candidate:
+                value = candidate["source"]
+                if not isinstance(value, str) or value not in known_sources:
+                    raise SafeError("LOG_PROVENANCE_SOURCE_INVALID")
+                sources.add(value)
+        if "synthetic" in item and (not isinstance(item["synthetic"], bool) or item["synthetic"] is not synthetic):
+            raise SafeError("LOG_PROVENANCE_CONFLICT")
+    if len(sources) > 1 or (synthetic is True and "READ_ONLY_LOCAL_COMMAND" in sources) or (synthetic is False and "SYNTHETIC_FIXED_FIXTURE" in sources):
+        raise SafeError("LOG_PROVENANCE_CONFLICT")
+    if declared_source == "SYNTHETIC_FIXED_FIXTURE" and synthetic is not True:
+        raise SafeError("LOG_PROVENANCE_CONFLICT")
+    if declared_source == "READ_ONLY_LOCAL_COMMAND" and synthetic is not False:
+        raise SafeError("LOG_PROVENANCE_CONFLICT")
     footers = [item for item in records if item["recordType"] == "footer"]
     if len(footers) > 1 or (footers and records[-1]["recordType"] != "footer"):
         raise SafeError("LOG_FOOTER_ORDER_INVALID")
@@ -93,6 +116,11 @@ def summarize_bytes(data):
     if len(samples) > 180:
         raise SafeError("LOG_SAMPLE_LIMIT")
     hints, protocol_issues = [], []
+    utc_start = _utc(records[0]["utcISO"])
+    utc_end = _utc(footers[0]["utcISO"]) if footers else None
+    elapsed_end = _number(footers[0]["elapsedSeconds"],0,1900) if footers and "elapsedSeconds" in footers[0] else None
+    if utc_end is not None and utc_end < utc_start:
+        protocol_issues.append({"code":"HEADER_FOOTER_UTC_ORDER_INVALID"})
     if not samples:
         hints.append({"code": "NO_SAMPLES_REVIEW", "meaning": "NO_ACTIVITY_CONCLUSION_POSSIBLE"})
     observed_process_samples = observed_tcp_samples = partial_process_samples = partial_tcp_samples = 0
@@ -107,6 +135,11 @@ def summarize_bytes(data):
         if sample.get("sampleIndex") != index:
             raise SafeError("LOG_SAMPLE_SEQUENCE_INVALID")
         elapsed = _number(sample.get("elapsedSeconds"), 0, 1900)
+        utc_current = _utc(sample["utcISO"])
+        if utc_current < utc_start or (utc_end is not None and utc_current > utc_end):
+            protocol_issues.append({"code":"SAMPLE_OUTSIDE_DECLARED_UTC_WINDOW","sampleIndex":index})
+        if elapsed_end is not None and elapsed > elapsed_end:
+            protocol_issues.append({"code":"SAMPLE_AFTER_DECLARED_ELAPSED_WINDOW","sampleIndex":index})
         processes, tcp = sample.get("processes"), sample.get("tcp")
         if not isinstance(processes, dict) or not isinstance(tcp, dict) or processes.get("status") not in STATUSES or tcp.get("status") not in STATUSES:
             raise SafeError("LOG_OBSERVATION_STATUS_INVALID")
@@ -122,8 +155,12 @@ def summarize_bytes(data):
                 counts[role] = None
             else:
                 counts[role] = _integer(value)
+        process_contradiction = processes["status"] == "EMPTY" and any(count for count in counts.values() if count is not None)
+        if process_contradiction:
+            protocol_issues.append({"code": "EMPTY_PROCESS_STATE_HAS_NONZERO_COUNT", "sampleIndex": index})
         if processes["status"] in {"OBSERVED", "EMPTY"}:
-            observed_process_samples += 1
+            if not process_contradiction:
+                observed_process_samples += 1
             if set(roles) != set(ROLES):
                 raise SafeError("LOG_OBSERVED_ROLE_SET_INCOMPLETE")
         elif processes["status"] == "PARTIAL":
@@ -138,15 +175,20 @@ def summarize_bytes(data):
                 if not isinstance(category, dict):
                     raise SafeError("LOG_TCP_CATEGORY_INVALID")
                 total += _integer(category.get("count"), 1000000)
+            tcp_contradiction = total != connection_count or (tcp["status"] == "EMPTY" and connection_count != 0)
             if total != connection_count:
                 protocol_issues.append({"code": "TCP_CATEGORY_TOTAL_DISAGREES", "sampleIndex": index})
-            if tcp["status"] == "PARTIAL":
+            if tcp["status"] == "EMPTY" and connection_count != 0:
+                protocol_issues.append({"code": "EMPTY_TCP_STATE_HAS_NONZERO_COUNT", "sampleIndex": index})
+            if tcp_contradiction:
+                pass
+            elif tcp["status"] == "PARTIAL":
                 partial_tcp_samples += 1
             else:
                 observed_tcp_samples += 1
-        if processes["status"] in {"OBSERVED", "EMPTY"} and counts.get("claude", 0) and counts.get("clash", 0) + counts.get("mihomo", 0) == 0:
+        if not process_contradiction and processes["status"] in {"OBSERVED", "EMPTY"} and counts.get("claude", 0) and counts.get("clash", 0) + counts.get("mihomo", 0) == 0:
             hints.append({"code": "PROXY_NAME_ROLE_NOT_VISIBLE_WHILE_APP_ROLE_VISIBLE", "sampleIndex": index, "meaning": "REVIEW_ONLY_NOT_ROUTE_OR_LEAK_PROOF"})
-        current = {"elapsed": elapsed, "utc": _utc(sample["utcISO"]), "counts": counts, "processStatus": processes["status"]}
+        current = {"elapsed": elapsed, "utc": _utc(sample["utcISO"]), "counts": counts, "processStatus": "NOT_OBSERVED" if process_contradiction else processes["status"]}
         if previous:
             gap = elapsed - previous["elapsed"]
             if gap < 0:
@@ -174,8 +216,7 @@ def summarize_bytes(data):
     else:
         outcome = "NOT_ESTABLISHED"
     known_completions = {"DURATION_COMPLETE", "WINDOW_COMPLETE", "SAMPLE_LIMIT_REACHED", "OUTPUT_LIMIT_REACHED", "TOTAL_OUTPUT_LIMIT", "USER_INTERRUPTED_OBSERVER_ONLY", "COLLECTOR_INTERRUPTED", "COLLECTOR_FAILED_FIXED_CODE_NO_RAW_ERROR"}
-    synthetic = records[0].get("synthetic")
-    provenance = "SYNTHETIC_FIXED_FIXTURE" if synthetic is True else "COLLECTOR_DECLARED_PASSIVE_NOT_ATTESTED" if synthetic is False else "UNSPECIFIED_SOURCE_NOT_OBSERVATION_PROOF"
+    provenance = "SYNTHETIC_FIXED_FIXTURE" if synthetic is True and declared_source == "SYNTHETIC_FIXED_FIXTURE" else "COLLECTOR_DECLARED_PASSIVE_NOT_ATTESTED" if synthetic is False and declared_source == "READ_ONLY_LOCAL_COMMAND" else "UNSPECIFIED_SOURCE_NOT_OBSERVATION_PROOF"
     return {
         "schema": "hongai.passive-observation-analysis.v1", "sessionId": session,
         "scope": "PASSIVE_DIAGNOSTIC_METADATA_ONLY", "sampleCount": len(samples),
@@ -210,10 +251,12 @@ def _path(value, for_output=False):
     return path
 
 
-def read_bounded(value):
+def read_bounded(value, *, maximum_bytes=MAX_BYTES):
+    if type(maximum_bytes) is not int or not 1 <= maximum_bytes <= MAX_BYTES:
+        raise SafeError("LOG_READ_BUDGET_INVALID")
     path = _path(value)
     info = path.lstat()
-    if not stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400 or info.st_size > MAX_BYTES:
+    if not stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400 or info.st_size > maximum_bytes:
         raise SafeError("REGULAR_BOUNDED_LOG_REQUIRED")
     descriptor = os.open(str(path), os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
     try:
@@ -221,8 +264,8 @@ def read_bounded(value):
         if (opened.st_dev, opened.st_ino) != (info.st_dev, info.st_ino):
             raise SafeError("LOG_CHANGED_DURING_OPEN")
         with os.fdopen(descriptor, "rb", closefd=False) as stream:
-            data = stream.read(MAX_BYTES+1)
-        if len(data) > MAX_BYTES:
+            data = stream.read(maximum_bytes+1)
+        if len(data) > maximum_bytes:
             raise SafeError("LOG_BYTE_LIMIT")
         return data
     finally:
