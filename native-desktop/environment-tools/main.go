@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-const version = "0.1.0-tools-preview"
+const version = "0.1.1-tools-preview"
 
 var buildID = "development"
 

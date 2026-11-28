@@ -39,7 +39,7 @@ active workbench must stop before switching its managed runtime during upgrade.
 Installer frontends preserve the separate user state directory. Installer and
 account/business acceptance are recorded separately.
 
-Native Windows/macOS development component, version `0.1.0-tools-preview`.
+Native Windows/macOS development component, version `0.1.1-tools-preview`.
 This is **not** a completed environment simulator, hardware emulator, sandbox,
 network kill switch, Claude installer, or account-safety certification.
 
@@ -51,6 +51,12 @@ network kill switch, Claude installer, or account-safety certification.
 - Normal requests and meaningful file/code results are preserved. Only explicitly
   configured sensitive literals are replaced in supported text/structured outputs.
   Plain text, JSON escapes and declared URL/base64 representations are supported.
+- Optional policy version 2 selects exact JSON Pointer string-value paths inside
+  server results/errors. Other business values are untouched, even if they contain
+  the same literal. Protocol fields, schemas, resource locations and binary blocks
+  cannot be selected. Missing/non-string/protected paths are counted explicitly.
+- Both input and filtered output frames have a 4 MiB limit. Output expansion
+  stops with a symbolic error; oversized results are never forwarded unfiltered.
 - JSON-RPC identifiers retain full numeric precision. Duplicate members, invalid
   UTF-8, invalid framing and oversized messages stop the connection.
 - Installation changes only a selected MCP configuration, with an encrypted
@@ -77,6 +83,27 @@ subprocess output, remote MCP traffic, encrypted/unknown encodings, or secrets s
 across messages is implemented. Images, audio, binary resources, resource identifiers,
 cursors and protocol schemas are not rewritten. Binary blocks are counted as uninspected.
 Configured literal matching may redact matching business text: approve each rule carefully.
+
+Policy version 1 retains legacy literal matching. Version 2 is opt-in; existing
+customer rules/configuration are not migrated automatically. Copy
+`policy.scoped.example.json` and select the real tool's exact diagnostic string
+field locally. JSON Pointer paths use `/` segments, with `~0` for `~` and `~1` for
+`/` inside a property name. No wildcards or whole-object selectors are supported.
+Missing fields remain missing; they are not invented or silently changed to a
+different device, region or account identity. Redaction markers explicitly identify
+omitted values rather than pretending to be original observations.
+
+Paths/values and raw payloads are not included in the audit. Coverage is limited
+to the explicitly selected fields; unrelated values can still contain sensitive
+data. Binary data, arbitrary encodings and native client telemetry remain outside
+this component. The component neither changes nor hides the host's real hardware
+or geographical identity from the operating system.
+
+Cancellation closes only the three pipes owned by that bridge invocation and
+reaps the direct upstream process. It does not claim to terminate all descendants
+or cancel an arbitrary caller-owned Reader that is blocked forever. Third-party
+servers still control their own file/cache logging and inherited environment;
+the component's redacted audit does not prove they never write raw data.
 
 Current intake supports native Windows EXE/MSIX, macOS PKG publisher checks and
 official macOS `.app` identity/Team-ID verification.

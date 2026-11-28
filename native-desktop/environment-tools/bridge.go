@@ -90,6 +90,7 @@ func runBridge(ctx context.Context, b Binding, input io.Reader, output io.Writer
 	if e != nil {
 		return stats, e
 	}
+	callerCtx := ctx
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, b.Program, b.Args...)
@@ -112,6 +113,18 @@ func runBridge(ctx context.Context, b Binding, input io.Reader, output io.Writer
 	}
 	done := make(chan struct{})
 	defer close(done)
+	// Descendants may keep the inherited pipes open after the direct upstream
+	// exits. Cancellation must unblock our readers before reaching cmd.Wait.
+	// Only this invocation's pipes are closed; the caller owns input/output.
+	go func() {
+		select {
+		case <-ctx.Done():
+			childIn.Close()
+			childOut.Close()
+			childErr.Close()
+		case <-done:
+		}
+	}()
 	var invalidInput atomic.Bool
 	go func() {
 		defer childIn.Close()
@@ -178,6 +191,9 @@ func runBridge(ctx context.Context, b Binding, input io.Reader, output io.Writer
 	}
 	waitErr := cmd.Wait()
 	<-stderrDone
+	if callerCtx.Err() != nil {
+		return stats, errors.New("BRIDGE_CANCELLED")
+	}
 	if failure != nil {
 		return stats, failure
 	}
@@ -197,6 +213,18 @@ func writeAudit(root string, stats Counts, code string) error {
 	}
 	// Small, fixed schema; no messages, tool arguments, upstream stderr or paths.
 	a := map[string]any{"schema": "hongai.mcp-privacy-audit.v1", "messages": stats.Messages, "replacements": stats.Replacements, "uninspectedBinaryBlocks": stats.UninspectedBinaryBlocks, "result": code, "rawPayloadsExported": false, "nativeHardwareReadsCovered": false, "arbitraryEncodedDataCovered": false}
+	a["policyVersion"] = stats.PolicyVersion
+	a["coverage"] = stats.Coverage
+	a["configuredPaths"] = stats.ConfiguredPaths
+	a["scopedPathChecks"] = stats.ScopedPathChecks
+	a["scopedPathsMatched"] = stats.ScopedPathsMatched
+	a["scopedPathsMissing"] = stats.ScopedPathsMissing
+	a["scopedPathsNonString"] = stats.ScopedPathsNonString
+	a["scopedPathsProtected"] = stats.ScopedPathsProtected
+	a["scopedEmbeddedFieldsProtected"] = stats.ScopedEmbeddedFieldsProtected
+	a["scopedDepthLimitSkipped"] = stats.ScopedDepthLimitSkipped
+	a["scopedEmbeddedJSONUnparsed"] = stats.ScopedEmbeddedJSONUnparsed
+	a["outputLimitFailures"] = stats.OutputLimitFailures
 	data, _ := json.Marshal(a)
 	// Keep at most twenty exact owned audit entries. Do not traverse subtrees.
 	entries, e := os.ReadDir(root)

@@ -38,6 +38,12 @@ macOS 使用项目卷上已解析的绝对路径。存储仅接管自己创建�
 
 结果固定记录 `LOCAL_SIMULATOR_READBACK`、`local_mock`、`officialClientConnected=false`、`targetServiceContacted=false`、`nativeHardwareReadPathsValidated=false` 和 `customerReady=false`。在 Windows 上读回 Mac 模型只是跨模型测试，不能当作 Mac 系统实测。
 
+## 连贯性检查
+
+`coherence.mjs` 对同一模型的多次独立读回进行评估：七个观察面必须来自同一完整修订，运行标识和挑战不能重复，实际观察值必须与该模型匹配。缺少样本、未测字段与真实失败分别显示为 `NOT_TESTED`、`FAIL`，不会补成成功。完整本地判断至少需要两份有效独立读回。
+
+判断不通过时仅报告固定原因与受影响观察面，不自动改主机、改模型或删除资料。运行主机和模型目标平台分别记录；这些 JSON 不是硬件证明或厂商认证。模型的一致性不等于账号安全、地区合规或目标客户端验收。
+
 ## 接入厂商测试客户端需要的输入
 
 下一层需要你所获授权范围内的测试 SDK、专用测试构建或公开的接入契约，包括支持的系统/架构、接口版本、目标进程与 helper/工具进程清单、允许替换的读取面和实际读回方式。不需要账号密码、证书私钥或联系人信息。

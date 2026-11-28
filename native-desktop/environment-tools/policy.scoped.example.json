@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "rules": [
+    {
+      "id": "test_only_private_value",
+      "value": "REPLACE_THIS_SYNTHETIC_CANARY",
+      "encodings": ["url", "base64"],
+      "paths": ["/result/structuredContent/diagnostics/privateValue"]
+    }
+  ]
+}

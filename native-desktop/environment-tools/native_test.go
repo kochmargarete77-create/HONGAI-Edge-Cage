@@ -26,7 +26,7 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 func fixturePolicy() Policy {
-	return Policy{1, []Rule{{"network", hostIP, []string{"url", "base64"}}, {"secret", canary, []string{"base64"}}, {"timezone", "Asia/Shanghai", []string{"url", "base64"}}}}
+	return Policy{1, []Rule{{ID: "network", Value: hostIP, Encodings: []string{"url", "base64"}}, {ID: "secret", Value: canary, Encodings: []string{"base64"}}, {ID: "timezone", Value: "Asia/Shanghai", Encodings: []string{"url", "base64"}}}}
 }
 func testDirectory(t *testing.T) string {
 	t.Helper()
@@ -113,7 +113,7 @@ func TestBinaryAndProtocolLimitAreDeclared(t *testing.T) {
 	}
 }
 func TestPolicyValidation(t *testing.T) {
-	for _, policy := range []Policy{{2, nil}, {1, []Rule{{"x", "short", nil}}}, {1, []Rule{{"x", hostIP, nil}, {"x", canary, nil}}}, {1, []Rule{{"x", hostIP, []string{"unsupported"}}}}, {1, []Rule{{"a", hostIP, nil}, {"b", hostIP, nil}}}} {
+	for _, policy := range []Policy{{3, nil}, {1, []Rule{{ID: "x", Value: "short"}}}, {1, []Rule{{ID: "x", Value: hostIP}, {ID: "x", Value: canary}}}, {1, []Rule{{ID: "x", Value: hostIP, Encodings: []string{"unsupported"}}}}, {1, []Rule{{ID: "a", Value: hostIP}, {ID: "b", Value: hostIP}}}} {
 		if _, e := newFilter(policy); e == nil {
 			t.Fatal("BAD_POLICY_ACCEPTED")
 		}
