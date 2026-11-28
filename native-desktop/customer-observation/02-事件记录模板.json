@@ -1,0 +1,12 @@
+{
+  "schema": "hongai.passive-activity-events.v1",
+  "sessionId": "REPLACE_WITH_COLLECTOR_SESSION_ID",
+  "eventFields": {
+    "kind": ["chat", "download", "tool_use", "app_opened", "app_closed", "visible_error"],
+    "source": ["customer_reported", "visible_ui"],
+    "result": ["completed", "failed", "unknown"],
+    "code": ["NONE", "NETWORK_ERROR", "HTTP_401", "HTTP_403", "HTTP_429", "LOGIN_SCREEN_SHOWN", "OTHER_UNCLASSIFIED"]
+  },
+  "events": [],
+  "instructions": "Add only UTC time, optional elapsedSeconds, and the enumerated kind/source/result/code. Do not add free-text notes, prompts, filenames, paths, addresses, account details or payloads. An empty events array means no event annotations were provided, not no activity."
+}

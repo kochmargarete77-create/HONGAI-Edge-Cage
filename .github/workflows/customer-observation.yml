@@ -1,0 +1,75 @@
+name: Passive customer observation contracts
+on:
+  push:
+    branches: [native-desktop-development]
+    paths:
+      - native-desktop/customer-observation/**
+      - .github/workflows/customer-observation.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validation:
+    name: observer-${{ matrix.runner }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {runner: windows-2022, platform: win32, arch: x64}
+          - {runner: windows-2025, platform: win32, arch: x64}
+          - {runner: macos-15, platform: darwin, arch: arm64}
+          - {runner: macos-26, platform: darwin, arch: arm64}
+          - {runner: macos-15-intel, platform: darwin, arch: x64}
+          - {runner: macos-26-intel, platform: darwin, arch: x64}
+    defaults:
+      run:
+        working-directory: native-desktop/customer-observation
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.13'
+          architecture: ${{ matrix.arch }}
+      - name: Windows PowerShell 5.1 helpers and actual record builder fixture
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:PYTHONDONTWRITEBYTECODE='1'
+          $env:TEMP=Join-Path (Get-Location) 'tmp'
+          $env:TMP=$env:TEMP
+          New-Item -ItemType Directory -Path tmp,out -Force|Out-Null
+          . '.\Collect-ReadOnly-Windows.ps1' -FunctionsOnly
+          $validation=Test-HongaiObservationHelpers
+          if($validation.status -cne 'SYNTHETIC_HELPERS_PASS' -or $validation.checks -ne 47){throw 'HELPER_TESTS_FAILED'}
+          $validation|ConvertTo-Json -Compress|Set-Content -LiteralPath 'out/windows-helper-tests.json' -Encoding UTF8
+          Get-HongaiObservationSyntheticContractFixture|ForEach-Object{ConvertTo-Json -InputObject $_ -Depth 14 -Compress}|Set-Content -LiteralPath 'tmp/windows-contract.ndjson' -Encoding UTF8
+          python -B ci_validate.py --windows-fixture (Join-Path (Get-Location) 'tmp/windows-contract.ndjson')
+          if($LASTEXITCODE){throw 'FIXTURE_VALIDATION_FAILED'}
+        env:
+          HONGAI_OBSERVER_EXPECT_PLATFORM: ${{ matrix.platform }}
+          HONGAI_OBSERVER_EXPECT_ARCH: ${{ matrix.arch }}
+      - name: macOS synthetic parsers, collector-to-analyser contract and native private storage
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          HONGAI_OBSERVER_EXPECT_PLATFORM: ${{ matrix.platform }}
+          HONGAI_OBSERVER_EXPECT_ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          mkdir -p tmp out
+          export TEMP="$(pwd -P)/tmp" TMP="$(pwd -P)/tmp" TMPDIR="$(pwd -P)/tmp"
+          export PYTHONDONTWRITEBYTECODE=1
+          python -B ci_validate.py
+      - name: Preserve fixture-only validation evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: observer-${{ matrix.runner }}
+          path: native-desktop/customer-observation/out/
+          retention-days: 7
+          if-no-files-found: warn
