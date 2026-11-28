@@ -48,6 +48,8 @@ def main():
     summary = {"schema":"hongai.passive-observer-validation.v1", "sourceCommit":os.environ.get("GITHUB_SHA"), "result":"PASS" if accepted else "FAIL", "executionHost":{"platform":sys.platform,"architecture":platform.machine(),"python":platform.python_version()}, "unitTests":result.testsRun,"failures":len(result.failures),"errors":len(result.errors),"skipped":len(result.skipped),"source":"SYNTHETIC_FIXED_FIXTURE", "windowsFixtureVerified":fixture_verified,"nativeMacFilesystemTestExecuted":sys.platform=="darwin","processOrTcpLiveCollectionExecuted":False,"accountDataRead":False,"hostNetworkChanged":False,"fullEnvironmentAccepted":False}
     (output/"validation.json").write_text(json.dumps(summary,indent=2)+"\n",encoding="utf-8")
     print(json.dumps(summary))
+    if not accepted:
+        print(stream.getvalue(), end="")
     return 0 if accepted else 1
 
 

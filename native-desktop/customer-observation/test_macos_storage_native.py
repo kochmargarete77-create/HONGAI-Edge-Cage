@@ -15,13 +15,15 @@ class MacNativeStorageTests(unittest.TestCase):
         base.mkdir(exist_ok=True)
         with tempfile.TemporaryDirectory(dir=str(base)) as root:
             session = ExclusiveSession(Path(root))
-            header = make_header(session.session_id, "2026-11-28T00:00:00Z", {"status": "NOT_OBSERVED"}, 10, 10, source="SYNTHETIC_FIXED_FIXTURE")
-            footer = make_footer(session.session_id, "2026-11-28T00:00:10Z", 0, 10, "WINDOW_COMPLETE")
-            self.assertTrue(session.sample(header))
-            self.assertTrue(session.sample(footer))
-            session.summary({"header": header, "footer": footer})
-            directory = Path(root) / session.name
-            session.close()
+            try:
+                header = make_header(session.session_id, "2026-11-28T00:00:00.000Z", {"status": "NOT_OBSERVED"}, 10, 10, source="SYNTHETIC_FIXED_FIXTURE")
+                footer = make_footer(session.session_id, "2026-11-28T00:00:10.000Z", 0, 10, "WINDOW_COMPLETE")
+                self.assertTrue(session.sample(header))
+                self.assertTrue(session.sample(footer))
+                session.summary({"header": header, "footer": footer})
+                directory = Path(root) / session.name
+            finally:
+                session.close()
             log = directory / "observation.ndjson"
             self.assertEqual(log.stat().st_mode & 0o777, 0o600)
             self.assertEqual(directory.stat().st_mode & 0o777, 0o700)
