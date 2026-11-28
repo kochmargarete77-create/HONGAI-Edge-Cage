@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<installer-gui-script minSpecVersion="2">
+    <title>HONG AI Environment</title>
+    <welcome file="Welcome.html"/>
+    <readme file="ReadMe.html"/>
+    <conclusion file="Conclusion.html"/>
+    <options customize="never" require-scripts="false" hostArchitectures="arm64,x86_64"/>
+    <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>
+    <volume-check>
+        <allowed-os-versions>
+            <os-version min="13.0"/>
+        </allowed-os-versions>
+    </volume-check>
+    <choices-outline>
+        <line choice="workbench"/>
+    </choices-outline>
+    <choice id="workbench" visible="false">
+        <pkg-ref id="com.hongai.environment.workbench.pkg"/>
+    </choice>
+    <pkg-ref id="com.hongai.environment.workbench.pkg" version="0.2.0" onConclusion="none" installKBytes="15369" updateKBytes="0">#HONGAI-Environment-component.pkg</pkg-ref>
+    <pkg-ref id="com.hongai.environment.workbench.pkg">
+        <bundle-version>
+            <bundle CFBundleShortVersionString="0.2.0" CFBundleVersion="0.2.0" id="com.hongai.environment.workbench" path="HONG AI Environment.app"/>
+        </bundle-version>
+    </pkg-ref>
+</installer-gui-script>

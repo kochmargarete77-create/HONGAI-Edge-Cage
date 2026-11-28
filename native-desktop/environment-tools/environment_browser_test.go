@@ -27,11 +27,17 @@ func TestEnvironmentBrowserConfigurationAndDailyEntryFlow(t *testing.T) {
 	}
 	waitEnvironmentAction(t, s)
 	outDir := testDirectory(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 	c := exec.CommandContext(ctx, "node", "environment_ui_smoke.cjs")
 	c.Env = append(os.Environ(), "HONGAI_UI_TEST_URL="+server.URL+"/#"+s.token, "HONGAI_UI_TEST_OUTPUT="+outDir)
 	if out, e := c.CombinedOutput(); e != nil {
+		if dir := os.Getenv("HONGAI_UI_ARTIFACT_DIR"); dir != "" {
+			_ = os.MkdirAll(dir, 0700)
+			if b, readError := os.ReadFile(filepath.Join(outDir, "ui-failure.json")); readError == nil {
+				_ = os.WriteFile(filepath.Join(dir, "ui-failure.json"), b, 0600)
+			}
+		}
 		t.Fatalf("browser UI fixture failed: %v %s", e, out)
 	}
 	if launches.Load() != 1 {

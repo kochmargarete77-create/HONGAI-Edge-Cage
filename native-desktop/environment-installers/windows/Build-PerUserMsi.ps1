@@ -22,11 +22,11 @@ $icon = (Resolve-Path -LiteralPath $IconFile).Path
 $sha = (Get-FileHash -LiteralPath $payload -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($sha -cne $ExpectedSHA256.ToLowerInvariant()) { throw 'PAYLOAD_SHA256_MISMATCH' }
 $validation = Get-Content -LiteralPath $PayloadValidationJson -Raw | ConvertFrom-Json
-if ($validation.schema -cne 'hongai.windows-payload-validation.v1' -or $validation.sha256 -cne $sha -or $validation.sourceCommit -cne $SourceCommit.ToLowerInvariant() -or $validation.nativeTestsPassed -ne $true -or $validation.cliSmokePassed -ne $true -or $validation.executableMode -cne 'console') { throw 'EXACT_CONSOLE_PAYLOAD_VALIDATION_REQUIRED' }
+if ($validation.schema -cne 'hongai.windows-payload-validation.v1' -or $validation.sha256 -cne $sha -or $validation.sourceCommit -cne $SourceCommit.ToLowerInvariant() -or $validation.nativeTestsPassed -ne $true -or $validation.cliSmokePassed -ne $true -or  $validation.executableMode -cnotin @('console','windowsgui')) { throw 'EXACT_NATIVE_PAYLOAD_VALIDATION_REQUIRED' }
 $bytes = [IO.File]::ReadAllBytes($payload)
 if ($bytes.Length -lt 512 -or $bytes[0] -ne 77 -or $bytes[1] -ne 90) { throw 'PE_IMAGE_REQUIRED' }
 $pe = [BitConverter]::ToInt32($bytes, 60)
-if ($pe -lt 64 -or $pe + 94 -gt $bytes.Length -or [BitConverter]::ToUInt32($bytes, $pe) -ne 17744 -or [BitConverter]::ToUInt16($bytes, $pe + 4) -ne 34404 -or [BitConverter]::ToUInt16($bytes, $pe + 92) -ne 3) { throw 'AMD64_CONSOLE_PE_REQUIRED_GUI_NEEDS_SEPARATE_VALIDATION' }
+if ($pe -lt 64 -or $pe + 94 -gt $bytes.Length -or [BitConverter]::ToUInt32($bytes, $pe) -ne 17744 -or [BitConverter]::ToUInt16($bytes, $pe + 4) -ne 34404 -or [BitConverter]::ToUInt16($bytes, $pe + 92) -ne $(if($validation.executableMode -ceq 'windowsgui'){2}else{3})) { throw 'AMD64_PE_SUBSYSTEM_MUST_MATCH_EXACT_VALIDATED_MODE' }
 $stage = Join-Path $output ('stage-' + [guid]::NewGuid().ToString('N'))
 [void][IO.Directory]::CreateDirectory($stage)
 $oldTemp = $env:TEMP; $oldTmp = $env:TMP
@@ -101,7 +101,7 @@ try {
     foreach($item in @(@(1,1252),@(2,'Installation Database'),@(3,'HONG AI Environment Workbench'),@(4,'HONG AI'),@(5,'Installer;Preparation;Diagnostics'),@(6,'Per-user preview component; official Claude is not bundled.'),@(7,'x64;1033'),@(9,$packageCode),@(14,200),@(15,10),@(18,'HONG AI native MSI builder'))) { Set-MsiProperty $summary Property @($item[0],$item[1]) }
     [void](Invoke-MsiMethod $summary Persist); [void](Invoke-MsiMethod $db Commit)
     Close-MsiObject $summary; $summary=$null; Close-MsiObject $db; $db=$null
-    $manifest=[ordered]@{schema='hongai.windows-msi.v1';productVersion=$ProductVersion;productCode=$productCode;upgradeCode=$upgradeCode;packageCode=$packageCode;sourceCommit=$SourceCommit.ToLowerInvariant();payloadSha256=$sha;msiSha256=(Get-FileHash -LiteralPath $msi -Algorithm SHA256).Hash.ToLowerInvariant();payloadMode='console';scope='per-user-component-preparation-and-diagnostics';installRelativePath='Programs\HONG AI Environment Workbench';privateDataRelativePath='HONGAI-Environment';uninstallKeepsPrivateData=$true;majorUpgradeRemoveExistingProductsSequence=1550;fullEnvironmentCustomerReady=$false;organizationSigning='NOT_PROVIDED';buildValidated=$true;installedValidated=$false;upgradeValidated=$false;uninstallValidated=$false}
+    $manifest=[ordered]@{schema='hongai.windows-msi.v1';productVersion=$ProductVersion;productCode=$productCode;upgradeCode=$upgradeCode;packageCode=$packageCode;sourceCommit=$SourceCommit.ToLowerInvariant();payloadSha256=$sha;msiSha256=(Get-FileHash -LiteralPath $msi -Algorithm SHA256).Hash.ToLowerInvariant();payloadMode=$validation.executableMode;scope='per-user-component-preparation-and-diagnostics';installRelativePath='Programs\HONG AI Environment Workbench';privateDataRelativePath='HONGAI-Environment';uninstallKeepsPrivateData=$true;majorUpgradeRemoveExistingProductsSequence=1550;fullEnvironmentCustomerReady=$false;organizationSigning='NOT_PROVIDED';buildValidated=$true;installedValidated=$false;upgradeValidated=$false;uninstallValidated=$false}
     Write-JsonUtf8 ($msi+'.json') $manifest
     [pscustomobject]@{Msi=$msi;Manifest=$msi+'.json';SHA256=$manifest.msiSha256;LocalInstallationPerformed=$false}
 } finally {

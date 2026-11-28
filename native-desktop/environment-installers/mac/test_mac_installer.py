@@ -7,6 +7,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest import mock
+import xml.etree.ElementTree as ET
 
 
 spec = importlib.util.spec_from_file_location("mac_installer", Path(__file__).with_name("mac_installer.py"))
@@ -15,6 +16,47 @@ spec.loader.exec_module(package)
 
 
 class MacInstallerGuards(unittest.TestCase):
+    def test_actual_productbuild_distribution_keeps_embedded_component(self):
+        actual = Path(__file__).with_name("fixture-productbuild-distribution.xml")
+        distribution = ET.parse(actual).getroot()
+        package.verify_component_reference(distribution, "0.2.0")
+        definition = next(ref for ref in distribution.findall("pkg-ref") if (ref.text or "").strip())
+        self.assertEqual(definition.text, "#" + package.COMPONENT)
+        # The source XML before productbuild also remains valid.
+        definition.text = package.COMPONENT
+        package.verify_component_reference(distribution, "0.2.0")
+
+    def test_component_reference_rejects_urls_traversal_and_other_payloads(self):
+        actual = Path(__file__).with_name("fixture-productbuild-distribution.xml")
+        for text in ("https://example.invalid/" + package.COMPONENT,
+                     "file:" + package.COMPONENT, "file:///tmp/" + package.COMPONENT,
+                     "#../" + package.COMPONENT, "#" + package.COMPONENT + "?x=1",
+                     "%23" + package.COMPONENT, "#other.pkg", "//example.invalid/payload.pkg"):
+            with self.subTest(text=text):
+                distribution = ET.parse(actual).getroot()
+                definition = next(ref for ref in distribution.findall("pkg-ref") if (ref.text or "").strip())
+                definition.text = text
+                with self.assertRaisesRegex(RuntimeError, "PACKAGE_COMPONENT_REFERENCE_MISMATCH"):
+                    package.verify_component_reference(distribution, "0.2.0")
+
+    def test_component_reference_rejects_unknown_ids_versions_and_metadata(self):
+        actual = Path(__file__).with_name("fixture-productbuild-distribution.xml")
+        distribution = ET.parse(actual).getroot()
+        distribution.find("choice/pkg-ref").set("id", "unknown.component")
+        with self.assertRaisesRegex(RuntimeError, "PACKAGE_COMPONENT_REFERENCE_MISMATCH"):
+            package.verify_component_reference(distribution, "0.2.0")
+        distribution = ET.parse(actual).getroot()
+        with self.assertRaisesRegex(RuntimeError, "PACKAGE_COMPONENT_REFERENCE_MISMATCH"):
+            package.verify_component_reference(distribution, "0.1.0")
+        distribution.find("pkg-ref/bundle-version/bundle").set("path", "Claude.app")
+        with self.assertRaisesRegex(RuntimeError, "PACKAGE_COMPONENT_METADATA_MISMATCH"):
+            package.verify_component_reference(distribution, "0.2.0")
+        distribution = ET.parse(actual).getroot()
+        ref = ET.SubElement(distribution, "pkg-ref", id=package.PKG_ID, version="0.2.0")
+        ref.text = package.COMPONENT
+        with self.assertRaisesRegex(RuntimeError, "PACKAGE_COMPONENT_REFERENCE_MISMATCH"):
+            package.verify_component_reference(distribution, "0.2.0")
+
     def test_macho_minimum_is_highest_of_actual_universal_slices(self):
         def native_output(argv, **_):
             if argv[0].endswith("lipo"):

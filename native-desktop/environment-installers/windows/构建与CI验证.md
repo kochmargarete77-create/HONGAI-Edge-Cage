@@ -4,7 +4,7 @@
 
 ## 构建工具
 
-采用 Windows 自带 `makecab.exe` 及 `WindowsInstaller.Installer` Automation。无需向客户安装 PowerShell、Python、Go、.NET 或 WiX；这些脚本仅供发行构建及 CI。构建脚本用 PowerShell 7 执行。自包含控制台 EXE 是当前验证路线；GUI 子系统 EXE 被拒绝，待独立执行测试和哈希绑定后再提供 GUI 路线。
+采用 Windows 自带 `makecab.exe` 及 `WindowsInstaller.Installer` Automation。无需向客户安装 PowerShell、Python、Go、.NET 或 WiX；这些脚本仅供发行构建及 CI。构建脚本用 PowerShell 7 执行。支持已独立执行原生测试并绑定哈希的控制台或 windowsgui EXE；PE Subsystem 必须分别精确为3或2。0.2.1新发行使用windowsgui，旧版升级夹具使用console；两份实际EXE均完整测试。
 
 WiX 官方 NuGet 最新系列需要 .NET 工具运行时，并对营收用户说明维护费条款；本实现不安装或使用 WiX。依据：[Windows Installer Database Automation](https://learn.microsoft.com/en-us/windows/win32/msi/database-object)、[SummaryInformation](https://learn.microsoft.com/en-us/windows/win32/msi/database-summaryinformation)、[Installer.FileHash](https://learn.microsoft.com/en-us/windows/win32/msi/installer-filehash)、[每用户无需 UAC 的包](https://learn.microsoft.com/en-us/windows/win32/msi/authoring-packages-without-the-uac-dialog-box)、[ICE38 用户目录组件 HKCU KeyPath](https://learn.microsoft.com/en-us/windows/win32/msi/ice38)、[MSI 命令行](https://learn.microsoft.com/en-us/windows/win32/msi/standard-installer-command-line-options)、[升级事务时机](https://docs.firegiant.com/wix/schema/wxs/majorupgrade/)、[WiX 发行来源及条款](https://www.nuget.org/packages/wix)。
 
@@ -17,11 +17,11 @@ WiX 官方 NuGet 最新系列需要 .NET 工具运行时，并对营收用户说
 ```json
 {
   "schema": "hongai.windows-payload-validation.v1",
-  "sha256": "对应控制台EXE的64位小写SHA256",
+  "sha256": "对应已独立验证EXE的64位小写SHA256",
   "sourceCommit": "对应已验证源码的40位小写commit",
   "nativeTestsPassed": true,
   "cliSmokePassed": true,
-  "executableMode": "console"
+  "executableMode": "windowsgui"
 }
 ```
 

@@ -306,6 +306,41 @@ def verify_bundle(app, manifest):
         fail("APP_EXPECTED_ADHOC_SIGNATURE_NOT_FOUND")
 
 
+def verify_component_reference(distribution, version):
+    """Accept only our embedded component, before/after productbuild normalization.
+
+    productbuild prefixes embedded payload references with '#' and appends a
+    separate same-ID pkg-ref/bundle-version record. Neither is a remote URL.
+    """
+    top_refs = distribution.findall("pkg-ref")
+    definitions = [ref for ref in top_refs if (ref.text or "").strip()]
+    if len(definitions) != 1:
+        fail("PACKAGE_COMPONENT_REFERENCE_MISMATCH")
+    definition = definitions[0]
+    if (definition.get("id") != PKG_ID or definition.get("version") != version or
+            definition.text.strip() not in (COMPONENT, "#" + COMPONENT) or len(definition)):
+        fail("PACKAGE_COMPONENT_REFERENCE_MISMATCH")
+    metadata_count = 0
+    for ref in distribution.findall(".//pkg-ref"):
+        if ref.get("id") != PKG_ID:
+            fail("PACKAGE_COMPONENT_REFERENCE_MISMATCH")
+        if ref is definition:
+            continue
+        if (ref.text or "").strip() or ref.attrib != {"id": PKG_ID}:
+            fail("PACKAGE_COMPONENT_REFERENCE_MISMATCH")
+        if ref in top_refs:
+            metadata_count += 1
+            if metadata_count > 1 or len(ref) != 1 or ref[0].tag != "bundle-version" or len(ref[0]) != 1:
+                fail("PACKAGE_COMPONENT_METADATA_MISMATCH")
+            bundle = ref[0][0]
+            expected = {"CFBundleShortVersionString": version, "CFBundleVersion": version,
+                        "id": APP_ID, "path": APP_NAME}
+            if bundle.tag != "bundle" or bundle.attrib != expected or len(bundle):
+                fail("PACKAGE_COMPONENT_METADATA_MISMATCH")
+        elif len(ref):
+            fail("PACKAGE_COMPONENT_REFERENCE_MISMATCH")
+
+
 def verify_package(package, manifest, evidence):
     if package.is_symlink() or not package.is_file():
         fail("REGULAR_PACKAGE_FILE_REQUIRED")
@@ -331,9 +366,7 @@ def verify_package(package, manifest, evidence):
     options = distribution.find("options")
     if options is None or options.get("require-scripts") != "false":
         fail("PACKAGE_SCRIPTS_POLICY_INVALID")
-    refs = [p for p in distribution.findall("pkg-ref") if (p.text or "").strip()]
-    if len(refs) != 1 or refs[0].get("id") != PKG_ID or refs[0].get("version") != manifest["version"] or refs[0].text.strip() != COMPONENT:
-        fail("PACKAGE_COMPONENT_REFERENCE_MISMATCH")
+    verify_component_reference(distribution, manifest["version"])
     pkg = expanded / COMPONENT
     info = ET.parse(pkg / "PackageInfo").getroot()
     if info.get("identifier") != PKG_ID or info.get("version") != manifest["version"] or info.get("install-location") != "/Applications":

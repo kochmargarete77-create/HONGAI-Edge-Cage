@@ -19,7 +19,7 @@ import (
 	"time"
 )
 
-const environmentVersion = "0.2.0-environment-preview"
+const environmentVersion = "0.2.1-environment-preview"
 
 type EnvironmentSettings struct {
 	Version                 int    `json:"version"`
