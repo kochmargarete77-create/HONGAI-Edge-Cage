@@ -1,0 +1,43 @@
+{
+  "schema": "hongai.environment-model.v1",
+  "mode": "LOCAL_AUTHORIZED_TEST_ONLY",
+  "environmentId": "lab-windows-x64-demo",
+  "revision": 1,
+  "network": {
+    "transport": "LOCAL_MOCK_ONLY",
+    "exitIPv4": "203.0.113.10",
+    "countryCode": "US",
+    "dnsResolvers": ["192.0.2.53"],
+    "reachable": true
+  },
+  "regional": {
+    "countryCode": "US",
+    "timeZone": "America/Los_Angeles",
+    "languageTag": "en-US",
+    "locale": "en-US"
+  },
+  "platform": {"os": "windows", "architecture": "x64", "osVersion": "11"},
+  "hardware": {
+    "identityKind": "SYNTHETIC_PLACEHOLDER_NOT_REAL_HARDWARE_ID",
+    "deviceId": "synthetic-device-windows-x64",
+    "cpu": {"label": "synthetic-cpu-x64", "physicalCores": 4, "logicalCores": 8},
+    "memoryMiB": 16384
+  },
+  "rendering": {
+    "mode": "METADATA_ONLY",
+    "graphicsApi": "d3d11",
+    "vendorLabel": "synthetic-gpu-vendor",
+    "deviceLabel": "synthetic-gpu-device-x64",
+    "fingerprint": "NOT_RENDERED_NOT_A_REAL_GPU_FINGERPRINT"
+  },
+  "state": {
+    "profileId": "synthetic-profile-windows-x64",
+    "persistence": "FIXED_METADATA",
+    "authentication": "SYNTHETIC_UNAUTHENTICATED"
+  },
+  "tools": {
+    "transport": "LOCAL_MOCK_ONLY",
+    "capabilities": ["file.read", "file.write", "project.inspect", "network.describe"],
+    "resultContext": "SYNTHETIC_WORKSPACE_ONLY_NO_HOST_ACCESS"
+  }
+}

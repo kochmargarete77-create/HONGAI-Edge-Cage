@@ -1,0 +1,49 @@
+name: Local environment simulation lab
+on:
+  push:
+    branches: [native-desktop-development]
+    paths:
+      - native-desktop/simulation-lab/**
+      - .github/workflows/simulation-lab.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native-validation:
+    name: lab-${{ matrix.label }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {label: windows-2022-x64, runner: windows-2022, platform: win32, arch: x64}
+          - {label: windows-2025-x64, runner: windows-2025, platform: win32, arch: x64}
+          - {label: macos-15-arm64, runner: macos-15, platform: darwin, arch: arm64}
+          - {label: macos-26-arm64, runner: macos-26, platform: darwin, arch: arm64}
+          - {label: macos-15-x64, runner: macos-15-intel, platform: darwin, arch: x64}
+          - {label: macos-26-x64, runner: macos-26-intel, platform: darwin, arch: x64}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 24.15.0
+          architecture: ${{ matrix.arch }}
+          package-manager-cache: false
+      - name: Validate independent local models and stored sessions
+        working-directory: native-desktop/simulation-lab
+        env:
+          HONGAI_LAB_EXPECT_PLATFORM: ${{ matrix.platform }}
+          HONGAI_LAB_EXPECT_ARCH: ${{ matrix.arch }}
+          HONGAI_LAB_RUNNER_LABEL: ${{ matrix.label }}
+        run: node ci-validate.mjs
+      - name: Preserve local test evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: simulation-lab-${{ matrix.label }}
+          path: native-desktop/simulation-lab/out/
+          if-no-files-found: warn
+          retention-days: 7

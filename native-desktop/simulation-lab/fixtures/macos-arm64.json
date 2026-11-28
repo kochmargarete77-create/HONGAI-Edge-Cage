@@ -1,0 +1,43 @@
+{
+  "schema": "hongai.environment-model.v1",
+  "mode": "LOCAL_AUTHORIZED_TEST_ONLY",
+  "environmentId": "lab-macos-arm64-demo",
+  "revision": 1,
+  "network": {
+    "transport": "LOCAL_MOCK_ONLY",
+    "exitIPv4": "198.51.100.20",
+    "countryCode": "US",
+    "dnsResolvers": ["192.0.2.53"],
+    "reachable": true
+  },
+  "regional": {
+    "countryCode": "US",
+    "timeZone": "America/Los_Angeles",
+    "languageTag": "en-US",
+    "locale": "en-US"
+  },
+  "platform": {"os": "macOS", "architecture": "arm64", "osVersion": "15.6"},
+  "hardware": {
+    "identityKind": "SYNTHETIC_PLACEHOLDER_NOT_REAL_HARDWARE_ID",
+    "deviceId": "synthetic-device-macos-arm64",
+    "cpu": {"label": "synthetic-cpu-arm64", "physicalCores": 8, "logicalCores": 8},
+    "memoryMiB": 16384
+  },
+  "rendering": {
+    "mode": "METADATA_ONLY",
+    "graphicsApi": "metal",
+    "vendorLabel": "synthetic-gpu-vendor",
+    "deviceLabel": "synthetic-gpu-device-arm64",
+    "fingerprint": "NOT_RENDERED_NOT_A_REAL_GPU_FINGERPRINT"
+  },
+  "state": {
+    "profileId": "synthetic-profile-macos-arm64",
+    "persistence": "FIXED_METADATA",
+    "authentication": "SYNTHETIC_UNAUTHENTICATED"
+  },
+  "tools": {
+    "transport": "LOCAL_MOCK_ONLY",
+    "capabilities": ["file.read", "file.write", "project.inspect", "network.describe"],
+    "resultContext": "SYNTHETIC_WORKSPACE_ONLY_NO_HOST_ACCESS"
+  }
+}
