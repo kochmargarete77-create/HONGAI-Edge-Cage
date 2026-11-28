@@ -19,7 +19,7 @@ import (
 	"time"
 )
 
-const environmentVersion = "0.1.0-environment-preview"
+const environmentVersion = "0.2.0-environment-preview"
 
 type EnvironmentSettings struct {
 	Version                 int    `json:"version"`
@@ -116,7 +116,20 @@ func environmentRoot(p string, create bool) (string, error) {
 			return "", errors.New("ENVIRONMENT_DIRECTORY_CREATE_FAILED")
 		}
 	}
-	return realPath(p, true)
+	resolved, e := realPath(p, true)
+	if e != nil {
+		return "", e
+	}
+	// Windows path equality is case insensitive, while DPAPI entropy and Mac
+	// AEAD contexts are byte exact. Reuse the original owned spelling rather
+	// than silently treating an existing configuration as a new installation.
+	if validEnvironmentOwner(resolved) {
+		var owner environmentOwner
+		if decodeFile(filepath.Join(resolved, "environment-owner.json"), &owner) == nil {
+			return owner.Root, nil
+		}
+	}
+	return resolved, nil
 }
 
 func installEnvironment(root, self string) (EnvironmentReceipt, error) {
@@ -171,6 +184,17 @@ func installEnvironment(root, self string) (EnvironmentReceipt, error) {
 		return empty, e
 	}
 	sourceSHA := digest(b)
+	if old.Runtime != "" && old.RuntimeSHA != sourceSHA {
+		leasePath := filepath.Join(root, "workbench-active.lock")
+		if _, statError := os.Lstat(leasePath); statError == nil {
+			var lease environmentLease
+			if decodeFile(leasePath, &lease) != nil || lease.PID <= 0 || environmentProcessAlive(lease.PID) {
+				return empty, errors.New("CLOSE_WORKBENCH_SERVICE_BEFORE_UPGRADE")
+			}
+		} else if !os.IsNotExist(statError) {
+			return empty, errors.New("WORKBENCH_STATE_UNREADABLE_UPGRADE_STOPPED")
+		}
+	}
 	if old.RuntimeSHA == sourceSHA && old.Runtime != "" {
 		actual, e := readRuntimeBytes(old.Runtime)
 		if e != nil || digest(actual) != sourceSHA {
@@ -244,6 +268,16 @@ func saveEnvironmentSettings(root string, s EnvironmentSettings) error {
 	}
 	if e := validateEnvironmentSettings(s); e != nil {
 		return e
+	}
+	if info, e := os.Lstat(filepath.Join(root, "environment-settings.sealed")); e == nil {
+		if !info.Mode().IsRegular() {
+			return errors.New("EXISTING_SETTINGS_UNREADABLE_RESTORE_OR_REVIEW_REQUIRED")
+		}
+		if _, e = loadEnvironmentSettings(root); e != nil {
+			return errors.New("EXISTING_SETTINGS_UNREADABLE_RESTORE_OR_REVIEW_REQUIRED")
+		}
+	} else if !os.IsNotExist(e) {
+		return errors.New("EXISTING_SETTINGS_UNREADABLE_RESTORE_OR_REVIEW_REQUIRED")
 	}
 	b, _ := json.Marshal(s)
 	sealed, e := platformSeal(b, root)
@@ -430,6 +464,12 @@ func executeEnvironment(args []string) error {
 		}
 	}
 	switch command {
+	case "support":
+		r, e := environmentSupportReport(ctx, *root, inventoryEnvironment)
+		if e != nil {
+			return e
+		}
+		return json.NewEncoder(os.Stdout).Encode(r)
 	case "install":
 		self, e := os.Executable()
 		if e != nil {

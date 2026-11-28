@@ -22,6 +22,7 @@ hongai-tools environment install --root <dedicated-absolute-directory>
 hongai-tools environment open --root <same-directory>
 hongai-tools environment use --root <same-directory>
 hongai-tools environment inventory
+hongai-tools environment support --root <same-directory>
 hongai-tools environment uninstall --root <same-directory>
 ```
 
@@ -30,6 +31,13 @@ renames only the owned workbench directory. It never uninstalls official Claude,
 clears account state, changes host networking or deletes customer projects.
 Clash subscription and final-node credentials remain in the accepted Clash setup;
 the workbench accepts only the approved loopback entry, final IPv4 and target time zone.
+
+Environment workbench 0.2 adds native installer frontends, a redacted support
+download, preserved cryptographic roots across Windows path case changes, and
+explicit recovery instead of overwriting unreadable encrypted settings. An
+active workbench must stop before switching its managed runtime during upgrade.
+Installer frontends preserve the separate user state directory. Installer and
+account/business acceptance are recorded separately.
 
 Native Windows/macOS development component, version `0.1.0-tools-preview`.
 This is **not** a completed environment simulator, hardware emulator, sandbox,

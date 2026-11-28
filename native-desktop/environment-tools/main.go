@@ -16,12 +16,14 @@ import (
 
 const version = "0.1.0-tools-preview"
 
+var buildID = "development"
+
 func execute(args []string) error {
 	if len(args) > 0 && args[0] == "environment" {
 		return executeEnvironment(args[1:])
 	}
 	if len(args) == 0 || args[0] == "version" {
-		return json.NewEncoder(os.Stdout).Encode(map[string]any{"name": "HONG AI Native Tool Privacy", "version": version, "componentOnly": true, "fullEnvironmentSimulation": false, "officialClientBundled": false, "physicalHardwareSimulation": false})
+		return json.NewEncoder(os.Stdout).Encode(map[string]any{"name": "HONG AI Native Environment Workbench and Tool Privacy", "version": version, "environmentVersion": environmentVersion, "buildID": buildID, "componentOnly": true, "fullEnvironmentSimulation": false, "officialClientBundled": false, "physicalHardwareSimulation": false})
 	}
 	flags := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
@@ -100,7 +102,8 @@ func execute(args []string) error {
 }
 func main() {
 	args := os.Args[1:]
-	if len(args) == 0 && strings.HasPrefix(strings.ToLower(filepath.Base(os.Args[0])), "hongai-environment") {
+	desktopInvocation := len(args) == 0 && strings.HasPrefix(strings.ToLower(filepath.Base(os.Args[0])), "hongai-environment")
+	if desktopInvocation {
 		args = []string{"environment", "use"}
 	}
 	if e := execute(args); e != nil {
@@ -109,6 +112,9 @@ func main() {
 			code = "OPERATION_FAILED_NO_RAW_DETAILS_EXPORTED"
 		}
 		fmt.Fprintln(os.Stderr, code)
+		if desktopInvocation {
+			presentEnvironmentFailure(code)
+		}
 		os.Exit(2)
 	}
 }

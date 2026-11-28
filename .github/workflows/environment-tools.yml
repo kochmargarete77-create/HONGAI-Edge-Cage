@@ -2,7 +2,7 @@ name: Native environment workbench and tool privacy
 on:
   push:
     branches: [native-desktop-development]
-    paths: ['native-desktop/environment-tools/**', '.github/workflows/environment-tools.yml']
+    paths: ['native-desktop/environment-tools/**', '.github/workflows/environment-tools.yml', 'native-desktop/environment-installers/**']
   workflow_dispatch:
 permissions:
   contents: read
@@ -34,7 +34,7 @@ jobs:
           $env:HONGAI_TEST_ROOT=Join-Path (Get-Location) '.fixtures'
           New-Item -ItemType Directory -Path $env:HONGAI_TEST_ROOT,dist -Force|Out-Null
           $env:HONGAI_TOOL_BINARY=Join-Path (Get-Location) 'dist/hongai-tools.exe'
-          go build -buildvcs=false -trimpath -ldflags '-s -w' -o $env:HONGAI_TOOL_BINARY .
+          go build -buildvcs=false -trimpath -ldflags "-s -w -X main.buildID=$env:GITHUB_SHA" -o $env:HONGAI_TOOL_BINARY .
           if($LASTEXITCODE){throw 'BUILD_FAILED'}
           $env:HONGAI_VALID_INSTALLER=Join-Path $env:RUNNER_TEMP 'official-Claude.msix'
           $env:HONGAI_VALID_INSTALLER_SOURCE='https://downloads.claude.ai/releases/win32/x64/6.28899.6/Claude-2f5fc59b2d1c672dd9dced86720c50f48cca0cf9.msix'
@@ -53,6 +53,36 @@ jobs:
           if($LASTEXITCODE){throw 'NATIVE_TESTS_FAILED'}
           & $env:HONGAI_TOOL_BINARY version|Out-File dist/component-status.json -Encoding utf8
           (Get-FileHash $env:HONGAI_TOOL_BINARY).Hash|Out-File dist/SHA256.txt -Encoding utf8
+          $newBinary=$env:HONGAI_TOOL_BINARY
+          $cli=& $newBinary version|ConvertFrom-Json
+          if($LASTEXITCODE -or $cli.environmentVersion -cne '0.2.0-environment-preview' -or $cli.buildID -cne $env:GITHUB_SHA){throw 'CURRENT_CLI_METADATA_NOT_ACCEPTED'}
+          $oldBinary=Join-Path $env:HONGAI_TEST_ROOT 'hongai-tools-old-build-fixture.exe'
+          go build -buildvcs=false -trimpath -ldflags "-s -w -X main.buildID=old-fixture-$env:GITHUB_SHA" -o $oldBinary .
+          if($LASTEXITCODE){throw 'OLD_BUILD_FIXTURE_FAILED'}
+          $env:HONGAI_TOOL_BINARY=$oldBinary
+          go test -v -count=1 ./... 2>&1|Tee-Object -FilePath dist/native-tests-old-fixture.txt
+          if($LASTEXITCODE){throw 'OLD_BUILD_FIXTURE_NATIVE_TESTS_FAILED'}
+          $oldCLI=& $oldBinary version|ConvertFrom-Json
+          if($LASTEXITCODE -or $oldCLI.buildID -cne ('old-fixture-'+$env:GITHUB_SHA)){throw 'OLD_BUILD_FIXTURE_CLI_FAILED'}
+          $env:HONGAI_TOOL_BINARY=$newBinary
+          $installerRoot=Join-Path (Get-Location) '../environment-installers'
+          python (Join-Path $installerRoot 'build-brand-icons.py') --output (Join-Path (Get-Location) 'dist/brand')
+          if($LASTEXITCODE){throw 'BRAND_ICON_BUILD_FAILED'}
+          $newHash=(Get-FileHash -LiteralPath $newBinary).Hash.ToLowerInvariant()
+          $oldHash=(Get-FileHash -LiteralPath $oldBinary).Hash.ToLowerInvariant()
+          $msiRoot=Join-Path (Get-Location) 'dist/msi'
+          New-Item -ItemType Directory -Path $msiRoot -Force|Out-Null
+          foreach($pair in @(@('old',$oldHash),@('new',$newHash))){
+            $validation=@{schema='hongai.windows-payload-validation.v1';sha256=$pair[1];sourceCommit=$env:GITHUB_SHA;nativeTestsPassed=$true;cliSmokePassed=$true;executableMode='console';fixtureScope='SAME_SOURCE_SEPARATELY_BUILT_AND_TESTED_BUILD_METADATA_VARIANTS_NOT_PREVIOUS_RELEASE_PROOF'}
+            [IO.File]::WriteAllText((Join-Path $msiRoot ($pair[0]+'-payload-validation.json')),($validation|ConvertTo-Json),[Text.UTF8Encoding]::new($false))
+          }
+          $builder=Join-Path $installerRoot 'windows/Build-PerUserMsi.ps1'
+          $brand=Join-Path (Get-Location) 'dist/brand/HONGAI.ico'
+          $license=Join-Path (& go env GOROOT) 'LICENSE'
+          & $builder -PayloadFile $oldBinary -ExpectedSHA256 $oldHash -ProductVersion '0.1.99' -SourceCommit $env:GITHUB_SHA -LicenseFile $license -OutputDirectory (Join-Path $msiRoot 'old') -PayloadValidationJson (Join-Path $msiRoot 'old-payload-validation.json') -IconFile $brand
+          & $builder -PayloadFile $newBinary -ExpectedSHA256 $newHash -ProductVersion '0.2.0' -SourceCommit $env:GITHUB_SHA -LicenseFile $license -OutputDirectory (Join-Path $msiRoot 'new') -PayloadValidationJson (Join-Path $msiRoot 'new-payload-validation.json') -IconFile $brand
+          & (Join-Path $installerRoot 'windows/Test-PerUserMsi.ps1') -OldMsi (Join-Path $msiRoot 'old/HONGAI-Environment-Workbench-0.1.99-x64.msi') -NewMsi (Join-Path $msiRoot 'new/HONGAI-Environment-Workbench-0.2.0-x64.msi') -OutputDirectory (Join-Path $msiRoot 'validation')
+
       - name: Mac native build, protected storage, installation and real executable checks
         if: runner.os == 'macOS'
         shell: bash
@@ -63,7 +93,7 @@ jobs:
           mkdir -p "$GOTMPDIR" .fixtures dist
           export HONGAI_TEST_ROOT="$(pwd -P)/.fixtures"
           export HONGAI_TOOL_BINARY="$(pwd -P)/dist/hongai-tools"
-          go build -buildvcs=false -trimpath -ldflags '-s -w' -o "$HONGAI_TOOL_BINARY" .
+          go build -buildvcs=false -trimpath -ldflags "-s -w -X main.buildID=$GITHUB_SHA" -o "$HONGAI_TOOL_BINARY" .
           codesign --force --sign - --timestamp=none "$HONGAI_TOOL_BINARY"
           official="$(cd "$RUNNER_TEMP" && pwd -P)/official-fixture"
           mkdir -p "$official"
@@ -81,15 +111,40 @@ jobs:
           export HONGAI_BROWSER_FIXTURE_PATH="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
           test -x "$HONGAI_BROWSER_FIXTURE_PATH"
           go test -v -count=1 ./... 2>&1 | tee dist/native-tests.txt
-          GOARCH=amd64 go build -buildvcs=false -trimpath -ldflags '-s -w' -o dist/hongai-tools-amd64 .
-          GOARCH=arm64 go build -buildvcs=false -trimpath -ldflags '-s -w' -o dist/hongai-tools-arm64 .
+          GOARCH=amd64 go build -buildvcs=false -trimpath -ldflags "-s -w -X main.buildID=$GITHUB_SHA" -o dist/hongai-tools-amd64 .
+          GOARCH=arm64 go build -buildvcs=false -trimpath -ldflags "-s -w -X main.buildID=$GITHUB_SHA" -o dist/hongai-tools-arm64 .
           lipo -create -output dist/hongai-tools-universal dist/hongai-tools-amd64 dist/hongai-tools-arm64
           codesign --force --sign - --timestamp=none dist/hongai-tools-universal
           codesign --verify --strict dist/hongai-tools-universal
           dist/hongai-tools-universal version > dist/component-status.json
           shasum -a 256 dist/hongai-tools-universal > dist/SHA256.txt
+          installer_root="$(cd ../environment-installers && pwd -P)"
+          export PYTHONDONTWRITEBYTECODE=1
+          python3 "$installer_root/build-brand-icons.py" --output "$(pwd -P)/dist/brand"
+          export HONGAI_MAC_PACKAGE_TEST_ROOT="$(pwd -P)/.fixtures/mac-package-guards"
+          mkdir -p "$HONGAI_MAC_PACKAGE_TEST_ROOT"
+          python3 -m unittest discover -s "$installer_root/mac" -p test_mac_installer.py -v
+          runtime_sha="$(shasum -a 256 dist/hongai-tools-universal | awk '{print $1}')"
+          bash "$installer_root/mac/build-mac-installer.sh" --runtime "$(pwd -P)/dist/hongai-tools-universal" --sha256 "$runtime_sha" --version 0.2.0 --icon "$(pwd -P)/dist/brand/HONGAI.icns" --output "$(pwd -P)/dist/installers"
+          bash "$installer_root/mac/verify-mac-installer.sh" --manifest "$(pwd -P)/dist/installers/installer-manifest.json"
+          bash "$installer_root/mac/ci-install-smoke.sh" --manifest "$(pwd -P)/dist/installers/installer-manifest.json" --disposable-ci
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: native-tool-privacy-${{ matrix.runner }}
-          path: native-desktop/environment-tools/dist/
+          path: |
+            native-desktop/environment-tools/dist/hongai-tools.exe
+            native-desktop/environment-tools/dist/hongai-tools-universal
+            native-desktop/environment-tools/dist/*.json
+            native-desktop/environment-tools/dist/*.txt
+            native-desktop/environment-tools/dist/ui/*.png
+            native-desktop/environment-tools/dist/ui/*.json
+            native-desktop/environment-tools/dist/installers/*.pkg
+            native-desktop/environment-tools/dist/installers/*app.zip
+            native-desktop/environment-tools/dist/installers/installer-manifest.json
+            native-desktop/environment-tools/dist/installers/ci-install-report.json
+            native-desktop/environment-tools/dist/msi/new/*.msi
+            native-desktop/environment-tools/dist/msi/new/*.json
+            native-desktop/environment-tools/dist/msi/validation/MSI-VALIDATION.json
+            native-desktop/environment-tools/dist/msi/validation/*.log

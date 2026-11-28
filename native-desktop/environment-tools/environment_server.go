@@ -41,6 +41,7 @@ type environmentServer struct {
 	busy                           bool
 	operation                      string
 	lastCode                       string
+	configurationIssue             string
 	inventory                      *EnvironmentInventory
 	probe                          *ProxyObservation
 	settings                       *EnvironmentSettings
@@ -57,6 +58,9 @@ func newEnvironmentServer(root, base, token string, ops environmentOperations) *
 	s := &environmentServer{root: root, baseURL: base, token: token, instance: randomName(), ops: ops, lastCode: "READY_FOR_INVENTORY", ctx: ctx, cancel: cancel}
 	if c, e := loadEnvironmentSettings(root); e == nil {
 		s.settings = &c
+	} else if _, statError := os.Lstat(filepath.Join(root, "environment-settings.sealed")); !os.IsNotExist(statError) {
+		s.lastCode = "EXISTING_SETTINGS_UNREADABLE_RESTORE_OR_REVIEW_REQUIRED"
+		s.configurationIssue = s.lastCode
 	}
 	return s
 }
@@ -167,9 +171,49 @@ func (s *environmentServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.URL.Path == "/api/ping" && r.Method == "GET":
 		_ = json.NewEncoder(w).Encode(map[string]any{"instance": s.instance, "version": environmentVersion})
+	case r.URL.Path == "/api/support" && r.Method == "GET":
+		s.mu.Lock()
+		if s.closing || s.ctx.Err() != nil || s.busy {
+			s.mu.Unlock()
+			apiError(w, 409, "WORKBENCH_IS_STOPPING")
+			return
+		}
+		var cached *EnvironmentInventory
+		if s.inventory != nil {
+			value := *s.inventory
+			cached = &value
+		}
+		var cachedSettings *EnvironmentSettings
+		if s.settings != nil {
+			value := *s.settings
+			cachedSettings = &value
+		}
+		s.busy = true
+		s.workers.Add(1)
+		s.mu.Unlock()
+		defer func() {
+			s.mu.Lock()
+			s.busy = false
+			s.mu.Unlock()
+			s.workers.Done()
+		}()
+		ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
+		defer cancel()
+		report, e := environmentSupportReport(ctx, s.root, func(context.Context) (EnvironmentInventory, error) {
+			if cached == nil {
+				return EnvironmentInventory{}, errors.New("INVENTORY_NOT_READY_REFRESH_FIRST")
+			}
+			return *cached, nil
+		}, environmentSupportOptions{SettingsCached: true, Settings: cachedSettings})
+		if e != nil {
+			apiError(w, 409, safeEnvironmentCode(e))
+			return
+		}
+		w.Header().Set("Content-Disposition", `attachment; filename="HONGAI-Support.json"`)
+		_ = json.NewEncoder(w).Encode(report)
 	case r.URL.Path == "/api/status" && r.Method == "GET":
 		s.mu.Lock()
-		snapshot := map[string]any{"version": environmentVersion, "busy": s.busy, "operation": s.operation, "lastCode": s.lastCode, "inventory": s.inventory, "probe": s.probe, "settings": s.settings, "capabilities": map[string]bool{"officialPackageIdentityPreserved": true, "hostNetworkMutation": false, "accountRequiredForPreparation": false, "hardwareSimulation": false, "nativeAllEgressEnforcement": false, "authenticatedBusinessAccepted": false, "fullEnvironmentAccepted": false}}
+		snapshot := map[string]any{"version": environmentVersion, "busy": s.busy, "operation": s.operation, "lastCode": s.lastCode, "configurationIssue": s.configurationIssue, "inventory": s.inventory, "probe": s.probe, "settings": s.settings, "capabilities": map[string]bool{"officialPackageIdentityPreserved": true, "hostNetworkMutation": false, "accountRequiredForPreparation": false, "hardwareSimulation": false, "nativeAllEgressEnforcement": false, "authenticatedBusinessAccepted": false, "fullEnvironmentAccepted": false}}
 		s.mu.Unlock()
 		_ = json.NewEncoder(w).Encode(snapshot)
 	case r.URL.Path == "/api/settings" && r.Method == "POST":
